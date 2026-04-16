@@ -75,7 +75,7 @@ function renderLogin() {
       <div>
         <p class="eyebrow">Secure fleet portal</p>
         <h1>Driver Fleet Management</h1>
-        <p class="subtle">Sign in with your company account to manage drivers, support users, inspections, and fleet activity.</p>
+        <p class="subtle">A modern command center for fleet operations, inspections, assignments, and driver activity.</p>
       </div>
       <form id="loginForm" class="stack">
         <label>Email<input type="email" name="email" autocomplete="username" required /></label>
@@ -100,7 +100,7 @@ function getNavItems() {
     items.push(['inspections', 'Inspections']);
     items.push(['issues', 'Issues']);
   }
-  items.push(['driver', state.user?.role === 'driver' ? 'My Mobile Workspace' : 'Driver Mobile']);
+  items.push(['driver', state.user?.role === 'driver' ? 'Driver Workspace' : 'Driver Workspace']);
   return items;
 }
 
@@ -122,7 +122,7 @@ function renderShell() {
         <div class="brand-row">
           <div class="brand-mark small">DF</div>
           <div>
-            <h2>Fleet Portal</h2>
+            <h2>Fleet Command</h2>
             <p>${state.user.firstName || state.user.email}</p>
           </div>
         </div>
@@ -143,14 +143,14 @@ function renderShell() {
         ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${label}</button>`).join('')}
       </nav>
       <div class="stack compact">
-        <div class="tiny">Version 6 · Multi-company roles</div>
+        <div class="tiny">Secure multi-company workspace</div>
         <button id="logoutBtn" class="btn ghost">Log Out</button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar glass">
         <div>
-          <p class="eyebrow">Operations workspace</p>
+          <p class="eyebrow">Real-time operations</p>
           <h1>${getViewTitle(activeView)}</h1>
           <p class="subtle">${company?.name || (state.user.role === 'super_user' ? 'Platform administration' : 'Company workspace')}</p>
         </div>
@@ -163,18 +163,18 @@ function renderShell() {
 
 function getViewTitle(view) {
   const titles = {
-    companies: 'Company Setup',
-    users: 'Users & Access',
-    dashboard: 'Operations Dashboard',
-    drivers: 'Driver Records',
-    vehicles: 'Fleet Vehicles',
-    assignments: 'Driver Assignments',
-    shifts: 'Shift Timeline',
-    inspections: 'Inspection Feed',
-    issues: 'Issue Queue',
+    companies: 'Company Control Center',
+    users: 'Team & Access',
+    dashboard: 'Fleet Overview',
+    drivers: 'Drivers',
+    vehicles: 'Vehicles',
+    assignments: 'Assignments',
+    shifts: 'Shift Activity',
+    inspections: 'Inspection Center',
+    issues: 'Alerts & Issues',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
   };
-  return titles[view] || 'Fleet Portal';
+  return titles[view] || 'Fleet Command';
 }
 
 function bindLogin() {
@@ -394,7 +394,7 @@ function renderAssignments() {
 function renderShifts() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Shift Timeline</h3><p>Recent driver activity</p></div>
+      <div class="panel-head"><h3>Shift Activity</h3><p>Recent driver activity</p></div>
       <div class="table-wrap"><table><thead><tr><th>Driver</th><th>Vehicle</th><th>Started</th><th>Ended</th><th>Status</th></tr></thead><tbody>
       ${state.shifts.map(s => `<tr><td>${driverName(s.driverId)}</td><td>${vehicleName(s.vehicleId)}</td><td>${fmt(s.startTime)}</td><td>${fmt(s.endTime)}</td><td>${statusTag(s.status)}</td></tr>`).join('') || '<tr><td colspan="5">No shifts yet</td></tr>'}
       </tbody></table></div>
@@ -404,7 +404,7 @@ function renderShifts() {
 function renderInspections() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Inspection Feed</h3><p>Submitted pre-trip inspections</p></div>
+      <div class="panel-head"><h3>Inspection Center</h3><p>Submitted pre-trip inspections</p></div>
       <div class="inspection-grid">${state.inspections.map(i => `<article class="inspection-card"><div class="panel-head"><strong>#${i.id} · ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} · ${fmt(i.inspectionTime)}</p><p>${i.notes || 'No notes.'}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${p.url}" alt="inspection photo" />`).join('')}</div></article>`).join('') || '<p>No inspections yet.</p>'}</div>
     </section>`;
 }
@@ -412,7 +412,7 @@ function renderInspections() {
 function renderIssues() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
+      <div class="panel-head"><h3>Alerts & Issues</h3><p>Open and closed defects</p></div>
       <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} · ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${i.description}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${p.url}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${i.id}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
     </section>`;
 }
