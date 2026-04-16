@@ -52,16 +52,51 @@ function auth(req, res, next) {
   req.sessionUser = sessions.get(token);
   next();
 }
-function adminOnly(req, res, next) {
-  if (req.sessionUser.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+function hasRole(user, roles) { return roles.includes(user.role); }
+function superOnly(req, res, next) {
+  if (!hasRole(req.sessionUser, ['super_user'])) return res.status(403).json({ error: 'Super user access required' });
+  next();
+}
+function companyAdminOnly(req, res, next) {
+  if (!hasRole(req.sessionUser, ['super_user', 'admin'])) return res.status(403).json({ error: 'Company admin access required' });
+  next();
+}
+function staffOnly(req, res, next) {
+  if (!hasRole(req.sessionUser, ['super_user', 'admin', 'support_staff'])) return res.status(403).json({ error: 'Staff access required' });
   next();
 }
 function sanitizeUser(user) {
-  return { id: user.id, email: user.email, role: user.role, linkedDriverId: user.linkedDriverId, firstName: user.firstName, lastName: user.lastName };
+  return {
+    id: user.id,
+    companyId: user.companyId ?? null,
+    email: user.email,
+    role: user.role,
+    linkedDriverId: user.linkedDriverId,
+    firstName: user.firstName,
+    lastName: user.lastName
+  };
+}
+function getRequestedCompanyId(req) {
+  return Number(req.query.companyId || req.body.companyId || req.params.companyId || 0) || null;
+}
+async function resolveCompanyId(req) {
+  if (req.sessionUser.role === 'super_user') {
+    const requested = getRequestedCompanyId(req);
+    if (requested) return requested;
+    const companies = await db.getCompanies();
+    return companies[0]?.id || null;
+  }
+  return Number(req.sessionUser.companyId || 0) || null;
+}
+async function requireCompanyScope(req, res, next) {
+  const companyId = await resolveCompanyId(req);
+  if (!companyId) return res.status(400).json({ error: 'No company selected' });
+  req.companyId = companyId;
+  next();
 }
 
 app.get('/api/health', async (_req, res) => {
-  res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, adminConfigured: await db.hasAdminSetup() });
+  res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, superUserConfigured: await db.hasAdminSetup() });
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -78,23 +113,64 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ user: safeUser });
 });
 
-app.get('/api/session', auth, async (req, res) => {
-  res.json({ user: req.sessionUser });
-});
-
+app.get('/api/session', auth, async (req, res) => res.json({ user: req.sessionUser }));
 app.post('/api/auth/logout', auth, async (req, res) => {
-  const token = getTokenFromReq(req);
-  sessions.delete(token);
+  sessions.delete(getTokenFromReq(req));
   clearSessionCookie(res);
   res.json({ ok: true });
 });
 
-app.get('/api/dashboard', auth, async (_req, res) => res.json(await db.getDashboard()));
-app.get('/api/users', auth, adminOnly, async (_req, res) => res.json(await db.getUsers()));
-app.get('/api/drivers', auth, async (_req, res) => res.json(await db.getDrivers()));
-app.post('/api/drivers', auth, adminOnly, async (req, res) => {
+app.get('/api/companies', auth, async (req, res) => {
+  if (req.sessionUser.role === 'super_user') return res.json(await db.getCompanies());
+  const companies = await db.getCompanies();
+  return res.json(companies.filter(c => Number(c.id) === Number(req.sessionUser.companyId)));
+});
+app.post('/api/companies', auth, superOnly, async (req, res) => {
   try {
-    const driver = await db.createDriver({
+    const company = await db.createCompany({ name: req.body.name, code: req.body.code || '', status: req.body.status || 'active' });
+    if (req.body.adminEmail && req.body.adminPassword) {
+      await db.createUser({
+        companyId: company.id,
+        email: req.body.adminEmail,
+        password: req.body.adminPassword,
+        role: 'admin',
+        firstName: req.body.adminFirstName || 'Company',
+        lastName: req.body.adminLastName || 'Admin'
+      });
+    }
+    res.json(company);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create company' });
+  }
+});
+
+app.get('/api/users', auth, companyAdminOnly, requireCompanyScope, async (req, res) => res.json(await db.getUsers(req.companyId)));
+app.post('/api/users', auth, companyAdminOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const role = String(req.body.role || 'support_staff');
+    if (!['admin', 'support_staff'].includes(role) && req.sessionUser.role !== 'super_user') {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    const user = await db.createUser({
+      companyId: req.companyId,
+      email: req.body.email,
+      password: req.body.password,
+      role,
+      firstName: req.body.firstName || '',
+      lastName: req.body.lastName || '',
+      linkedDriverId: null
+    });
+    res.json(user);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create user' });
+  }
+});
+
+app.get('/api/dashboard', auth, requireCompanyScope, async (req, res) => res.json(await db.getDashboard(req.companyId)));
+app.get('/api/drivers', auth, requireCompanyScope, async (req, res) => res.json(await db.getDrivers(req.companyId)));
+app.post('/api/drivers', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const driver = await db.createDriver(req.companyId, {
       firstName: req.body.firstName,
       lastName: req.body.lastName,
       phone: req.body.phone || '',
@@ -112,111 +188,127 @@ app.post('/api/drivers', auth, adminOnly, async (req, res) => {
   }
 });
 
-app.get('/api/vehicles', auth, async (_req, res) => res.json(await db.getVehicles()));
-app.post('/api/vehicles', auth, adminOnly, async (req, res) => {
-  const vehicle = await db.createVehicle({
-    unitNumber: req.body.unitNumber,
-    plateNumber: req.body.plateNumber || '',
-    vin: req.body.vin || '',
-    make: req.body.make || '',
-    model: req.body.model || '',
-    year: Number(req.body.year) || null,
-    type: req.body.type || 'tractor',
-    odometer: Number(req.body.odometer) || 0,
-    status: req.body.status || 'active'
-  });
-  res.json(vehicle);
-});
-
-app.get('/api/assignments', auth, async (_req, res) => res.json(await db.getAssignments()));
-app.post('/api/assignments', auth, adminOnly, async (req, res) => {
-  const assignment = await db.assignVehicle(Number(req.body.driverId), Number(req.body.vehicleId));
-  res.json(assignment);
-});
-
-app.get('/api/shifts', auth, async (_req, res) => res.json(await db.getShifts()));
-app.post('/api/shifts/start', auth, async (req, res) => {
+app.get('/api/vehicles', auth, requireCompanyScope, async (req, res) => res.json(await db.getVehicles(req.companyId)));
+app.post('/api/vehicles', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
-    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
-    const shift = await db.startShift(driverId, Number(req.body.vehicleId), Number(req.body.startOdometer) || 0);
+    const vehicle = await db.createVehicle(req.companyId, {
+      unitNumber: req.body.unitNumber,
+      plateNumber: req.body.plateNumber || '',
+      vin: req.body.vin || '',
+      make: req.body.make || '',
+      model: req.body.model || '',
+      year: Number(req.body.year) || null,
+      type: req.body.type || 'tractor',
+      odometer: Number(req.body.odometer) || 0,
+      status: req.body.status || 'active'
+    });
+    res.json(vehicle);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create vehicle' });
+  }
+});
+
+app.get('/api/assignments', auth, requireCompanyScope, async (req, res) => res.json(await db.getAssignments(req.companyId)));
+app.post('/api/assignments', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const assignment = await db.assignVehicle(req.companyId, Number(req.body.driverId), Number(req.body.vehicleId));
+    res.json(assignment);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to assign vehicle' });
+  }
+});
+
+app.get('/api/shifts', auth, requireCompanyScope, async (req, res) => res.json(await db.getShifts(req.companyId)));
+app.post('/api/shifts/start', auth, requireCompanyScope, async (req, res) => {
+  try {
+    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
+    const shift = await db.startShift(req.companyId, driverId, Number(req.body.vehicleId), Number(req.body.startOdometer) || 0);
     res.json(shift);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
-app.post('/api/shifts/end', auth, async (req, res) => {
+app.post('/api/shifts/end', auth, requireCompanyScope, async (req, res) => {
   try {
-    const shift = await db.endShift(Number(req.body.shiftId), Number(req.body.endOdometer) || 0);
+    const shift = await db.endShift(req.companyId, Number(req.body.shiftId), Number(req.body.endOdometer) || 0);
     res.json(shift);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/driver-view/:driverId', auth, async (req, res) => {
+app.get('/api/driver-view/:driverId', auth, requireCompanyScope, async (req, res) => {
   const requestedDriverId = Number(req.params.driverId);
   const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : requestedDriverId;
-  res.json(await db.getDriverView(driverId));
+  res.json(await db.getDriverView(req.companyId, driverId));
 });
 
-app.get('/api/inspections', auth, async (_req, res) => res.json(await db.getInspections()));
-app.post('/api/inspections', auth, upload.array('photos', 8), async (req, res) => {
-  const itemResults = JSON.parse(req.body.itemResults || '[]');
-  const issueFlag = req.body.issueFlag === 'true';
-  const severity = req.body.severity || 'low';
-  const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
-  const photos = (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }));
+app.get('/api/inspections', auth, requireCompanyScope, async (req, res) => res.json(await db.getInspections(req.companyId)));
+app.post('/api/inspections', auth, requireCompanyScope, upload.array('photos', 8), async (req, res) => {
+  try {
+    const itemResults = JSON.parse(req.body.itemResults || '[]');
+    const issueFlag = req.body.issueFlag === 'true';
+    const severity = req.body.severity || 'low';
+    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
+    const photos = (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }));
 
-  const inspection = await db.createInspection({
-    shiftId: Number(req.body.shiftId) || null,
-    driverId,
-    vehicleId: Number(req.body.vehicleId),
-    odometer: Number(req.body.odometer) || 0,
-    overallStatus: req.body.overallStatus || 'pass',
-    notes: req.body.notes || '',
-    itemResults,
-    photos
-  });
-
-  if (issueFlag) {
-    await db.createIssue({
+    const inspection = await db.createInspection(req.companyId, {
       shiftId: Number(req.body.shiftId) || null,
-      inspectionId: inspection.id,
+      driverId,
+      vehicleId: Number(req.body.vehicleId),
+      odometer: Number(req.body.odometer) || 0,
+      overallStatus: req.body.overallStatus || 'pass',
+      notes: req.body.notes || '',
+      itemResults,
+      photos
+    });
+
+    if (issueFlag) {
+      await db.createIssue(req.companyId, {
+        shiftId: Number(req.body.shiftId) || null,
+        inspectionId: inspection.id,
+        driverId,
+        vehicleId: Number(req.body.vehicleId),
+        category: req.body.category || 'other',
+        severity,
+        description: req.body.issueDescription || 'Inspection defect reported',
+        status: 'open',
+        photos
+      });
+      await db.updateVehicleStatus(req.companyId, Number(req.body.vehicleId), severity === 'critical' ? 'out_of_service' : 'needs_review');
+    }
+
+    res.json(inspection);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to save inspection' });
+  }
+});
+
+app.get('/api/issues', auth, requireCompanyScope, async (req, res) => res.json(await db.getIssues(req.companyId)));
+app.post('/api/issues', auth, requireCompanyScope, upload.array('photos', 8), async (req, res) => {
+  try {
+    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
+    const issue = await db.createIssue(req.companyId, {
+      shiftId: Number(req.body.shiftId) || null,
+      inspectionId: null,
       driverId,
       vehicleId: Number(req.body.vehicleId),
       category: req.body.category || 'other',
-      severity,
-      description: req.body.issueDescription || 'Inspection defect reported',
+      severity: req.body.severity || 'low',
+      description: req.body.description || '',
       status: 'open',
-      photos
+      photos: (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }))
     });
-    await db.updateVehicleStatus(Number(req.body.vehicleId), severity === 'critical' ? 'out_of_service' : 'needs_review');
+    await db.updateVehicleStatus(req.companyId, issue.vehicleId, issue.severity === 'critical' ? 'out_of_service' : 'needs_review');
+    res.json(issue);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create issue' });
   }
-
-  res.json(inspection);
 });
-
-app.get('/api/issues', auth, async (_req, res) => res.json(await db.getIssues()));
-app.post('/api/issues', auth, upload.array('photos', 8), async (req, res) => {
-  const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
-  const issue = await db.createIssue({
-    shiftId: Number(req.body.shiftId) || null,
-    inspectionId: null,
-    driverId,
-    vehicleId: Number(req.body.vehicleId),
-    category: req.body.category || 'other',
-    severity: req.body.severity || 'low',
-    description: req.body.description || '',
-    status: 'open',
-    photos: (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }))
-  });
-  await db.updateVehicleStatus(issue.vehicleId, issue.severity === 'critical' ? 'out_of_service' : 'needs_review');
-  res.json(issue);
-});
-app.patch('/api/issues/:id', auth, adminOnly, async (req, res) => {
+app.patch('/api/issues/:id', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
-    const issue = await db.updateIssue(Number(req.params.id), req.body.status, req.body.resolutionNotes);
-    if (issue.status === 'closed' && issue.vehicleId) await db.updateVehicleStatus(issue.vehicleId, 'active');
+    const issue = await db.updateIssue(req.companyId, Number(req.params.id), req.body.status, req.body.resolutionNotes);
+    if (issue.status === 'closed' && issue.vehicleId) await db.updateVehicleStatus(req.companyId, issue.vehicleId, 'active');
     res.json(issue);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -229,10 +321,10 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.h
   try {
     await db.init();
     app.listen(PORT, () => {
-      console.log(`Driver Fleet Management listening on ${PORT}`);
+      console.log(`Fleet Operations listening on ${PORT}`);
       console.log(`Database mode: ${process.env.DATABASE_URL ? 'PostgreSQL' : 'Local JSON fallback'}`);
       console.log(`Uploads dir: ${UPLOADS_DIR}`);
-      console.log(`Admin configured: ${Boolean(process.env.ADMIN_PASSWORD)}`);
+      console.log(`Super user configured: ${Boolean(process.env.ADMIN_PASSWORD || process.env.SUPER_PASSWORD)}`);
     });
   } catch (error) {
     console.error('Startup failed', error);

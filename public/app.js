@@ -1,5 +1,7 @@
 const state = {
   user: null,
+  companies: [],
+  users: [],
   dashboard: null,
   drivers: [],
   vehicles: [],
@@ -7,7 +9,9 @@ const state = {
   shifts: [],
   inspections: [],
   issues: [],
+  selectedCompanyId: null,
   selectedDriverId: null,
+  activeView: null,
   toastTimer: null
 };
 
@@ -21,26 +25,28 @@ function setToast(message, type = '') {
   toast.className = `toast show ${type}`;
   toast.textContent = message;
   clearTimeout(state.toastTimer);
-  state.toastTimer = setTimeout(() => toast.className = 'toast', 2500);
+  state.toastTimer = setTimeout(() => toast.className = 'toast', 2600);
+}
+
+function appendCompanyId(url) {
+  if (state.user?.role !== 'super_user' || !state.selectedCompanyId) return url;
+  const glue = url.includes('?') ? '&' : '?';
+  return `${url}${glue}companyId=${encodeURIComponent(state.selectedCompanyId)}`;
 }
 
 async function api(url, options = {}) {
   const opts = { ...options, credentials: 'include', headers: { ...(options.headers || {}) } };
-  const res = await fetch(url, opts);
+  const finalUrl = appendCompanyId(url);
+  const res = await fetch(finalUrl, opts);
   let body = null;
   try { body = await res.json(); } catch { body = null; }
   if (!res.ok) throw new Error(body?.error || 'Request failed');
   return body;
 }
 
-function saveSession(user) {
-  state.user = user;
+function roleLabel(role) {
+  return String(role || '').replaceAll('_', ' ');
 }
-
-function clearSession() {
-  state.user = null;
-}
-
 function statusTag(value) {
   return `<span class="tag ${String(value).toLowerCase().replace(/\s+/g, '_')}">${String(value).replaceAll('_', ' ')}</span>`;
 }
@@ -48,6 +54,10 @@ function byId(list, id) { return list.find(item => Number(item.id) === Number(id
 function driverName(id) { const d = byId(state.drivers, id); return d ? `${d.firstName} ${d.lastName}` : '—'; }
 function vehicleName(id) { const v = byId(state.vehicles, id); return v ? v.unitNumber : '—'; }
 function fmt(ts) { return ts ? new Date(ts).toLocaleString() : '—'; }
+function getCurrentCompany() { return byId(state.companies, state.selectedCompanyId) || null; }
+function isSuper() { return state.user?.role === 'super_user'; }
+function isAdminLike() { return ['super_user', 'admin'].includes(state.user?.role); }
+function isStaffLike() { return ['super_user', 'admin', 'support_staff'].includes(state.user?.role); }
 
 function render() {
   document.getElementById('app').innerHTML = `
@@ -63,56 +73,86 @@ function renderLogin() {
     <div class="login-card glass">
       <div class="brand-mark">DF</div>
       <div>
-        <p class="eyebrow">Railway + PostgreSQL Ready</p>
+        <p class="eyebrow">Secure fleet portal</p>
         <h1>Driver Fleet Management</h1>
-        <p class="subtle">Motive / Samsara-inspired dispatch board with mobile driver inspections.</p>
+        <p class="subtle">Sign in with your company account to manage drivers, support users, inspections, and fleet activity.</p>
       </div>
       <form id="loginForm" class="stack">
         <label>Email<input type="email" name="email" autocomplete="username" required /></label>
         <label>Password<input type="password" name="password" autocomplete="current-password" required /></label>
         <button class="btn primary" type="submit">Sign In</button>
       </form>
-      <div class="demo-grid">
-        <div>
-          <strong>Admin setup</strong>
-          <p>Use Railway variables <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code>.</p>
-        </div>
-        <div>
-          <strong>Driver logins</strong>
-          <p>Create driver accounts from the admin panel.</p>
-        </div>
-      </div>
+      <div class="login-note">Only authorized users can access this portal.</div>
     </div>
   </div>`;
 }
 
+function getNavItems() {
+  const items = [];
+  if (isSuper()) items.push(['companies', 'Companies']);
+  if (isAdminLike()) items.push(['users', 'Users']);
+  if (isStaffLike()) {
+    items.push(['dashboard', 'Dashboard']);
+    items.push(['drivers', 'Drivers']);
+    items.push(['vehicles', 'Vehicles']);
+    items.push(['assignments', 'Assignments']);
+    items.push(['shifts', 'Shifts']);
+    items.push(['inspections', 'Inspections']);
+    items.push(['issues', 'Issues']);
+  }
+  items.push(['driver', state.user?.role === 'driver' ? 'My Mobile Workspace' : 'Driver Mobile']);
+  return items;
+}
+
+function getDefaultView() {
+  if (state.user?.role === 'driver') return 'driver';
+  if (isSuper()) return 'companies';
+  if (isAdminLike()) return 'users';
+  return 'dashboard';
+}
+
 function renderShell() {
+  const navItems = getNavItems();
+  const company = getCurrentCompany();
+  const activeView = state.activeView || getDefaultView();
   return `
   <div class="shell">
     <aside class="sidebar glass">
       <div>
-        <div class="brand-row"><div class="brand-mark small">DF</div><div><h2>Fleet Ops</h2><p>${state.user.firstName || state.user.email}</p></div></div>
-        <div class="status-panel">${statusTag(state.user.role)}</div>
+        <div class="brand-row">
+          <div class="brand-mark small">DF</div>
+          <div>
+            <h2>Fleet Portal</h2>
+            <p>${state.user.firstName || state.user.email}</p>
+          </div>
+        </div>
+        <div class="status-panel stack compact">
+          <div>${statusTag(roleLabel(state.user.role))}</div>
+          ${state.selectedCompanyId ? `<div class="company-chip">${company?.name || 'Selected company'}</div>` : ''}
+        </div>
+        ${isSuper() ? `
+          <div class="scope-picker">
+            <label>Working company
+              <select id="companyScopeSelect">
+                ${state.companies.map(c => `<option value="${c.id}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${c.name}</option>`).join('')}
+              </select>
+            </label>
+          </div>` : ''}
       </div>
       <nav>
-        ${state.user.role === 'admin' ? `
-          <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-          <button class="nav-btn" data-view="drivers">Drivers</button>
-          <button class="nav-btn" data-view="vehicles">Vehicles</button>
-          <button class="nav-btn" data-view="assignments">Assignments</button>
-          <button class="nav-btn" data-view="shifts">Shifts</button>
-          <button class="nav-btn" data-view="inspections">Inspections</button>
-          <button class="nav-btn" data-view="issues">Issues</button>
-        ` : ''}
-        <button class="nav-btn ${state.user.role === 'driver' ? 'active' : ''}" data-view="driver">Driver Mobile</button>
+        ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${label}</button>`).join('')}
       </nav>
-      <button id="logoutBtn" class="btn ghost">Log Out</button>
+      <div class="stack compact">
+        <div class="tiny">Version 6 · Multi-company roles</div>
+        <button id="logoutBtn" class="btn ghost">Log Out</button>
+      </div>
     </aside>
     <main class="main">
       <header class="topbar glass">
         <div>
-          <p class="eyebrow">Live operations</p>
-          <h1>${state.user.role === 'admin' ? 'Dispatch Command Center' : 'Driver Shift Workspace'}</h1>
+          <p class="eyebrow">Operations workspace</p>
+          <h1>${getViewTitle(activeView)}</h1>
+          <p class="subtle">${company?.name || (state.user.role === 'super_user' ? 'Platform administration' : 'Company workspace')}</p>
         </div>
         <div class="right-chip">${new Date().toLocaleDateString()}</div>
       </header>
@@ -121,14 +161,35 @@ function renderShell() {
   </div>`;
 }
 
+function getViewTitle(view) {
+  const titles = {
+    companies: 'Company Setup',
+    users: 'Users & Access',
+    dashboard: 'Operations Dashboard',
+    drivers: 'Driver Records',
+    vehicles: 'Fleet Vehicles',
+    assignments: 'Driver Assignments',
+    shifts: 'Shift Timeline',
+    inspections: 'Inspection Feed',
+    issues: 'Issue Queue',
+    driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
+  };
+  return titles[view] || 'Fleet Portal';
+}
+
 function bindLogin() {
   document.getElementById('loginForm').onsubmit = async e => {
     e.preventDefault();
     try {
       const form = new FormData(e.target);
       const body = Object.fromEntries(form);
-      const data = await api('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      saveSession(data.user);
+      const data = await api('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      state.user = data.user;
+      state.activeView = getDefaultView();
       await loadEverything();
       render();
       setToast('Logged in successfully', 'success');
@@ -138,26 +199,9 @@ function bindLogin() {
   };
 }
 
-function bindShell() {
-  const navButtons = [...document.querySelectorAll('.nav-btn')];
-  const defaultView = state.user.role === 'admin' ? 'dashboard' : 'driver';
-  let activeView = navButtons.find(btn => btn.classList.contains('active'))?.dataset.view || defaultView;
-  const switchView = (view) => {
-    activeView = view;
-    navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
-    document.getElementById('viewContainer').innerHTML = renderView(view);
-    bindView(view);
-  };
-  navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
-  document.getElementById('logoutBtn').onclick = async () => {
-    try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
-    clearSession();
-    render();
-  };
-  switchView(activeView);
-}
-
 function renderView(view) {
+  if (view === 'companies') return renderCompanies();
+  if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
   if (view === 'drivers') return renderDrivers();
   if (view === 'vehicles') return renderVehicles();
@@ -168,8 +212,93 @@ function renderView(view) {
   return renderDriverWorkspace();
 }
 
+function bindShell() {
+  document.getElementById('viewContainer').innerHTML = renderView(state.activeView || getDefaultView());
+  bindView(state.activeView || getDefaultView());
+
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.onclick = () => {
+      state.activeView = btn.dataset.view;
+      render();
+    };
+  });
+
+  const scopeSelect = document.getElementById('companyScopeSelect');
+  if (scopeSelect) {
+    scopeSelect.onchange = async () => {
+      state.selectedCompanyId = Number(scopeSelect.value);
+      await loadEverything();
+      render();
+      setToast('Company scope updated', 'success');
+    };
+  }
+
+  document.getElementById('logoutBtn').onclick = async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+    state.user = null;
+    state.companies = [];
+    state.users = [];
+    state.selectedCompanyId = null;
+    state.activeView = null;
+    render();
+  };
+}
+
+function renderCompanies() {
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Companies</h3><p>The super user controls company setup and ownership</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th></tr></thead><tbody>
+          ${state.companies.map(c => `<tr><td>${c.name}</td><td>${c.code || '—'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
+        </tbody></table></div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Create Company</h3><p>Set up a company and its first admin user</p></div>
+        <form id="companyForm" class="stack compact">
+          <label>Company name<input name="name" required /></label>
+          <label>Company code<input name="code" placeholder="Optional short code" /></label>
+          <label>Status<select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+          <hr class="divider" />
+          <label>Initial admin email<input name="adminEmail" type="email" required /></label>
+          <div class="split"><label>First name<input name="adminFirstName" required /></label><label>Last name<input name="adminLastName" required /></label></div>
+          <label>Initial admin password<input name="adminPassword" type="password" autocomplete="new-password" required /></label>
+          <button class="btn primary" type="submit">Create Company</button>
+        </form>
+      </section>
+    </div>`;
+}
+
+function renderUsers() {
+  if (!state.selectedCompanyId && isSuper()) {
+    return `<section class="panel glass"><h3>Select a company first</h3><p class="subtle">Use the company picker in the sidebar to manage users for that company.</p></section>`;
+  }
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Company Users</h3><p>Admin and support staff accounts for this company</p></div>
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
+          ${state.users.map(u => `<tr><td>${u.firstName || ''} ${u.lastName || ''}</td><td>${u.email}</td><td>${statusTag(u.role)}</td></tr>`).join('') || '<tr><td colspan="3">No users yet</td></tr>'}
+        </tbody></table></div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Add User</h3><p>Create an admin or support staff login</p></div>
+        <form id="userForm" class="stack compact">
+          <div class="split"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
+          <label>Email<input name="email" type="email" required /></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" required /></label>
+          <label>Role<select name="role">
+            <option value="support_staff">Support Staff</option>
+            <option value="admin">Admin</option>
+          </select></label>
+          <button class="btn primary" type="submit">Create User</button>
+        </form>
+      </section>
+    </div>`;
+}
+
 function renderDashboard() {
-  const d = state.dashboard || { activeShifts: 0, inspectionsToday: 0, openIssues: 0, outOfService: 0, drivers: 0, vehicles: 0 };
+  const d = state.dashboard || { activeShifts: 0, inspectionsToday: 0, openIssues: 0, outOfService: 0 };
   return `
   <div class="dashboard-grid">
     <div class="metric-card glass"><span>Active Shifts</span><strong>${d.activeShifts}</strong></div>
@@ -183,11 +312,11 @@ function renderDashboard() {
         const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
         const activeShift = state.shifts.find(s => s.driverId === driver.id && s.status === 'started');
         return `<article class="list-card"><div><strong>${driver.firstName} ${driver.lastName}</strong><p>${vehicle ? vehicle.unitNumber : 'Unassigned'}</p></div><div>${activeShift ? statusTag('started') : statusTag(driver.status)}</div></article>`;
-      }).join('')}</div>
+      }).join('') || '<p class="tiny">No drivers yet.</p>'}</div>
     </div>
     <div class="panel glass span-2">
       <div class="panel-head"><h3>Vehicle Condition</h3><p>Live status by unit</p></div>
-      <div class="list-grid">${state.vehicles.map(vehicle => `<article class="list-card"><div><strong>${vehicle.unitNumber}</strong><p>${vehicle.make} ${vehicle.model} · ${vehicle.odometer.toLocaleString()} km</p></div><div>${statusTag(vehicle.status)}</div></article>`).join('')}</div>
+      <div class="list-grid">${state.vehicles.map(vehicle => `<article class="list-card"><div><strong>${vehicle.unitNumber}</strong><p>${vehicle.make} ${vehicle.model} · ${(vehicle.odometer || 0).toLocaleString()} km</p></div><div>${statusTag(vehicle.status)}</div></article>`).join('') || '<p class="tiny">No vehicles yet.</p>'}</div>
     </div>
   </div>`;
 }
@@ -196,13 +325,13 @@ function renderDrivers() {
   return `
     <div class="two-col">
       <section class="panel glass">
-        <div class="panel-head"><h3>Drivers</h3><p>Create and manage drivers</p></div>
+        <div class="panel-head"><h3>Drivers</h3><p>Drivers can log in, start shifts, inspect vehicles, and report issues</p></div>
         <div class="table-wrap"><table><thead><tr><th>Name</th><th>License</th><th>Status</th></tr></thead><tbody>
-          ${state.drivers.map(d => `<tr><td>${d.firstName} ${d.lastName}<div class="tiny">${d.email || ''}</div></td><td>${d.licenseClass} · ${d.licenseNumber}</td><td>${statusTag(d.status)}</td></tr>`).join('')}
+          ${state.drivers.map(d => `<tr><td>${d.firstName} ${d.lastName}<div class="tiny">${d.email || ''}</div></td><td>${d.licenseClass || '—'} · ${d.licenseNumber || '—'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
-        <div class="panel-head"><h3>Add Driver</h3><p>Dispatcher setup</p></div>
+        <div class="panel-head"><h3>Add Driver</h3><p>Create a driver record and optional driver login</p></div>
         <form id="driverForm" class="stack compact">
           <label>First name<input name="firstName" required /></label>
           <label>Last name<input name="lastName" required /></label>
@@ -210,7 +339,7 @@ function renderDrivers() {
           <label>Phone<input name="phone" /></label>
           <label>License number<input name="licenseNumber" /></label>
           <div class="split"><label>Class<input name="licenseClass" value="AZ" /></label><label>Expiry<input name="licenseExpiry" type="date" /></label></div>
-          <select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+          <label>Status<select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
           <label class="inline-check"><input type="checkbox" name="createLogin" value="true" /> Create driver login</label>
           <label>Driver password<input name="userPassword" type="password" autocomplete="new-password" /></label>
           <button class="btn primary" type="submit">Save Driver</button>
@@ -223,13 +352,13 @@ function renderVehicles() {
   return `
     <div class="two-col">
       <section class="panel glass">
-        <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list</p></div>
+        <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list for this company</p></div>
         <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody>
-          ${state.vehicles.map(v => `<tr><td>${v.unitNumber}<div class="tiny">${v.plateNumber || ''}</div></td><td>${v.make} ${v.model} · ${v.year || ''}</td><td>${statusTag(v.status)}</td></tr>`).join('')}
+          ${state.vehicles.map(v => `<tr><td>${v.unitNumber}<div class="tiny">${v.plateNumber || ''}</div></td><td>${v.make || ''} ${v.model || ''} · ${v.year || ''}</td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
-        <div class="panel-head"><h3>Add Vehicle</h3><p>Create unit and assign later</p></div>
+        <div class="panel-head"><h3>Add Vehicle</h3><p>Create a new fleet unit</p></div>
         <form id="vehicleForm" class="stack compact">
           <label>Unit number<input name="unitNumber" required /></label>
           <div class="split"><label>Plate<input name="plateNumber" /></label><label>VIN<input name="vin" /></label></div>
@@ -252,7 +381,7 @@ function renderAssignments() {
         </tbody></table></div>
       </section>
       <section class="panel glass">
-        <div class="panel-head"><h3>Assign Vehicle</h3><p>Dispatch planning</p></div>
+        <div class="panel-head"><h3>Assign Vehicle</h3><p>Choose a driver and vehicle</p></div>
         <form id="assignmentForm" class="stack compact">
           <label>Driver<select name="driverId">${state.drivers.map(d => `<option value="${d.id}">${d.firstName} ${d.lastName}</option>`).join('')}</select></label>
           <label>Vehicle<select name="vehicleId">${state.vehicles.map(v => `<option value="${v.id}">${v.unitNumber}</option>`).join('')}</select></label>
@@ -275,7 +404,7 @@ function renderShifts() {
 function renderInspections() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Inspection Feed</h3><p>Pre-trip and defect submissions</p></div>
+      <div class="panel-head"><h3>Inspection Feed</h3><p>Submitted pre-trip inspections</p></div>
       <div class="inspection-grid">${state.inspections.map(i => `<article class="inspection-card"><div class="panel-head"><strong>#${i.id} · ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} · ${fmt(i.inspectionTime)}</p><p>${i.notes || 'No notes.'}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${p.url}" alt="inspection photo" />`).join('')}</div></article>`).join('') || '<p>No inspections yet.</p>'}</div>
     </section>`;
 }
@@ -283,8 +412,8 @@ function renderInspections() {
 function renderIssues() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Issue Queue</h3><p>Repair and safety follow-up</p></div>
-      <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} · ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${i.description}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${p.url}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' ? `<button class="btn primary small-btn close-issue" data-id="${i.id}">Mark Closed</button>` : `<p class="tiny">Closed ${fmt(i.closedAt)}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
+      <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
+      <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} · ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${i.description}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${p.url}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${i.id}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
     </section>`;
 }
 
@@ -299,7 +428,7 @@ function renderDriverWorkspace() {
 
   return `
     <section class="mobile-stage">
-      ${state.user.role === 'admin' ? `
+      ${state.user.role !== 'driver' ? `
       <div class="driver-picker glass">
         <label>Preview Driver Mobile<select id="driverPicker">${state.drivers.map(d => `<option value="${d.id}" ${d.id === driverId ? 'selected' : ''}>${d.firstName} ${d.lastName}</option>`).join('')}</select></label>
       </div>` : ''}
@@ -353,76 +482,99 @@ function renderDriverWorkspace() {
 }
 
 function bindView(view) {
+  if (view === 'companies') {
+    const form = document.getElementById('companyForm');
+    if (form) form.onsubmit = submitJsonForm('/api/companies');
+  }
+  if (view === 'users') {
+    const form = document.getElementById('userForm');
+    if (form) form.onsubmit = submitJsonForm('/api/users');
+  }
   if (view === 'drivers') {
-    document.getElementById('driverForm').onsubmit = submitJsonForm('/api/drivers');
+    const form = document.getElementById('driverForm');
+    if (form) form.onsubmit = submitJsonForm('/api/drivers');
   }
   if (view === 'vehicles') {
-    document.getElementById('vehicleForm').onsubmit = submitJsonForm('/api/vehicles');
+    const form = document.getElementById('vehicleForm');
+    if (form) form.onsubmit = submitJsonForm('/api/vehicles');
   }
   if (view === 'assignments') {
-    document.getElementById('assignmentForm').onsubmit = submitJsonForm('/api/assignments');
+    const form = document.getElementById('assignmentForm');
+    if (form) form.onsubmit = submitJsonForm('/api/assignments');
   }
   if (view === 'issues') {
     document.querySelectorAll('.close-issue').forEach(btn => btn.onclick = async () => {
       try {
-        await api(`/api/issues/${btn.dataset.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'closed', resolutionNotes: 'Closed from dispatch board' }) });
+        await api(`/api/issues/${btn.dataset.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'closed', resolutionNotes: 'Closed from issue queue' })
+        });
         await loadEverything();
-        bindShell();
+        render();
         setToast('Issue closed', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
+      } catch (error) {
+        setToast(error.message, 'error');
+      }
     });
   }
-  if (view === 'driver') {
-    const picker = document.getElementById('driverPicker');
-    if (picker) picker.onchange = () => { state.selectedDriverId = Number(picker.value); bindShell(); };
-    const startShiftForm = document.getElementById('startShiftForm');
-    if (startShiftForm) startShiftForm.onsubmit = async e => {
-      e.preventDefault();
-      try {
-        const body = Object.fromEntries(new FormData(e.target));
-        await api('/api/shifts/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        await loadEverything();
-        bindShell();
-        setToast('Shift started', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-    };
-    const endShiftForm = document.getElementById('endShiftForm');
-    if (endShiftForm) endShiftForm.onsubmit = async e => {
-      e.preventDefault();
-      try {
-        const body = Object.fromEntries(new FormData(e.target));
-        await api('/api/shifts/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        await loadEverything();
-        bindShell();
-        setToast('Shift ended', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-    };
-    bindPhotoPreviews();
-    const inspectionForm = document.getElementById('inspectionForm');
-    if (inspectionForm) inspectionForm.onsubmit = async e => {
-      e.preventDefault();
-      try {
-        const fd = new FormData(e.target);
-        const items = inspectionItems.map(item => ({ item, result: fd.get(item), notes: fd.get(`note_${item}`) || '' }));
-        fd.append('itemResults', JSON.stringify(items));
-        await api('/api/inspections', { method: 'POST', body: fd });
-        await loadEverything();
-        bindShell();
-        setToast('Inspection submitted', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-    };
-    const quickIssueForm = document.getElementById('quickIssueForm');
-    if (quickIssueForm) quickIssueForm.onsubmit = async e => {
-      e.preventDefault();
-      try {
-        const fd = new FormData(e.target);
-        await api('/api/issues', { method: 'POST', body: fd });
-        await loadEverything();
-        bindShell();
-        setToast('Issue reported', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-    };
-  }
+  if (view === 'driver') bindDriverWorkspace();
+}
+
+function bindDriverWorkspace() {
+  const picker = document.getElementById('driverPicker');
+  if (picker) picker.onchange = () => { state.selectedDriverId = Number(picker.value); render(); };
+
+  const startShiftForm = document.getElementById('startShiftForm');
+  if (startShiftForm) startShiftForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const body = Object.fromEntries(new FormData(e.target));
+      await api('/api/shifts/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await loadEverything();
+      render();
+      setToast('Shift started', 'success');
+    } catch (error) { setToast(error.message, 'error'); }
+  };
+
+  const endShiftForm = document.getElementById('endShiftForm');
+  if (endShiftForm) endShiftForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const body = Object.fromEntries(new FormData(e.target));
+      await api('/api/shifts/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await loadEverything();
+      render();
+      setToast('Shift ended', 'success');
+    } catch (error) { setToast(error.message, 'error'); }
+  };
+
+  bindPhotoPreviews();
+  const inspectionForm = document.getElementById('inspectionForm');
+  if (inspectionForm) inspectionForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      const items = inspectionItems.map(item => ({ item, result: fd.get(item), notes: fd.get(`note_${item}`) || '' }));
+      fd.append('itemResults', JSON.stringify(items));
+      await api('/api/inspections', { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Inspection submitted', 'success');
+    } catch (error) { setToast(error.message, 'error'); }
+  };
+
+  const quickIssueForm = document.getElementById('quickIssueForm');
+  if (quickIssueForm) quickIssueForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      await api('/api/issues', { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Issue reported', 'success');
+    } catch (error) { setToast(error.message, 'error'); }
+  };
 }
 
 function submitJsonForm(url) {
@@ -434,8 +586,8 @@ function submitJsonForm(url) {
       await api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       e.target.reset();
       await loadEverything();
-      bindShell();
-      setToast('Saved', 'success');
+      render();
+      setToast('Saved successfully', 'success');
     } catch (error) {
       setToast(error.message, 'error');
     }
@@ -444,9 +596,36 @@ function submitJsonForm(url) {
 
 async function loadEverything() {
   if (!state.user) return;
-  const [dashboard, drivers, vehicles, assignments, shifts, inspections, issues] = await Promise.all([
-    api('/api/dashboard'), api('/api/drivers'), api('/api/vehicles'), api('/api/assignments'), api('/api/shifts'), api('/api/inspections'), api('/api/issues')
-  ]);
+
+  state.companies = await api('/api/companies');
+  if (!state.selectedCompanyId) {
+    state.selectedCompanyId = state.user.companyId || state.companies[0]?.id || null;
+  }
+  if (!state.selectedCompanyId && state.user.role !== 'driver') {
+    state.users = [];
+    state.dashboard = null;
+    state.drivers = [];
+    state.vehicles = [];
+    state.assignments = [];
+    state.shifts = [];
+    state.inspections = [];
+    state.issues = [];
+    return;
+  }
+
+  const requests = [
+    isAdminLike() ? api('/api/users') : Promise.resolve([]),
+    api('/api/dashboard'),
+    api('/api/drivers'),
+    api('/api/vehicles'),
+    api('/api/assignments'),
+    api('/api/shifts'),
+    api('/api/inspections'),
+    api('/api/issues')
+  ];
+
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues] = await Promise.all(requests);
+  state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
   state.vehicles = vehicles;
@@ -477,9 +656,10 @@ function bindPhotoPreviews() {
   try {
     const session = await api('/api/session');
     state.user = session.user;
+    state.activeView = getDefaultView();
     await loadEverything();
   } catch {
-    clearSession();
+    state.user = null;
   }
   render();
 })();

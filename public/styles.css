@@ -133,3 +133,11 @@ th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: l
   .demo-grid, .dashboard-grid, .split { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; flex-direction: column; }
 }
+
+
+.login-note { color: var(--muted); font-size: 13px; }
+.company-chip { color: var(--text); padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,.05); display: inline-block; }
+.scope-picker { margin-top: 16px; }
+.divider { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.tag.super_user { background: rgba(110,196,255,.18); color: #b9e4ff; }
+.tag.support_staff { background: rgba(255,255,255,.10); color: #d5e2ff; }
