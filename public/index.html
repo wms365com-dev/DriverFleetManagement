@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Driver Manager</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div>
+        <h1>Fleet Driver Manager</h1>
+        <p class="muted">Railway prototype</p>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+        <button class="nav-btn" data-view="drivers">Drivers</button>
+        <button class="nav-btn" data-view="vehicles">Vehicles</button>
+        <button class="nav-btn" data-view="assignments">Assignments</button>
+        <button class="nav-btn" data-view="inspections">Inspections</button>
+        <button class="nav-btn" data-view="issues">Issues</button>
+        <button class="nav-btn" data-view="driverPortal">Driver Portal</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section id="dashboard" class="view active"></section>
+      <section id="drivers" class="view"></section>
+      <section id="vehicles" class="view"></section>
+      <section id="assignments" class="view"></section>
+      <section id="inspections" class="view"></section>
+      <section id="issues" class="view"></section>
+      <section id="driverPortal" class="view"></section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
