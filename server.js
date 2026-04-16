@@ -1,270 +1,241 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
+const db = require('./db');
+const { verifyPassword, createSessionToken } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'db.json');
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const isProduction = process.env.NODE_ENV === 'production';
+const uploadsBase = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+const UPLOADS_DIR = path.resolve(uploadsBase);
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-const seed = {
-  counters: {
-    driver: 2,
-    vehicle: 2,
-    shift: 1,
-    inspection: 1,
-    issue: 1
-  },
-  drivers: [
-    { id: 1, firstName: 'John', lastName: 'Driver', phone: '555-100-2000', email: 'john@example.com', licenseNumber: 'D1234567', licenseClass: 'AZ', licenseExpiry: '2027-12-31', status: 'active' },
-    { id: 2, firstName: 'Maria', lastName: 'Lopez', phone: '555-200-3000', email: 'maria@example.com', licenseNumber: 'D7654321', licenseClass: 'AZ', licenseExpiry: '2028-05-30', status: 'active' }
-  ],
-  vehicles: [
-    { id: 1, unitNumber: 'TRK-101', plateNumber: 'ABCD123', vin: '1HGBH41JXMN109186', make: 'Freightliner', model: 'Cascadia', year: 2022, type: 'tractor', odometer: 124500, status: 'active' },
-    { id: 2, unitNumber: 'TRK-102', plateNumber: 'EFGH456', vin: '2HGBH41JXMN109187', make: 'Volvo', model: 'VNL', year: 2021, type: 'tractor', odometer: 156900, status: 'active' }
-  ],
-  assignments: [
-    { driverId: 1, vehicleId: 1, active: true, assignedAt: new Date().toISOString() },
-    { driverId: 2, vehicleId: 2, active: true, assignedAt: new Date().toISOString() }
-  ],
-  shifts: [],
-  inspections: [],
-  issues: []
-};
-
-function readDb() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
-    return structuredClone(seed);
-  }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-}
-
-function writeDb(db) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-}
-
-function nextId(db, key) {
-  db.counters[key] = (db.counters[key] || 0) + 1;
-  return db.counters[key];
-}
-
+const sessions = new Map();
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    cb(null, safeName);
-  }
+  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
 });
-const upload = multer({ storage });
+const upload = multer({ storage, limits: { fileSize: 8 * 1024 * 1024, files: 8 } });
 
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/dashboard', (_req, res) => {
-  const db = readDb();
-  const today = new Date().toISOString().slice(0, 10);
-  const activeShifts = db.shifts.filter(s => s.status === 'started').length;
-  const inspectionsToday = db.inspections.filter(i => (i.inspectionTime || '').slice(0, 10) === today).length;
-  const openIssues = db.issues.filter(i => i.status !== 'closed').length;
-  const outOfService = db.vehicles.filter(v => v.status === 'out_of_service').length;
-  res.json({ activeShifts, inspectionsToday, openIssues, outOfService, drivers: db.drivers.length, vehicles: db.vehicles.length });
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  return header.split(';').reduce((acc, part) => {
+    const [key, ...rest] = part.trim().split('=');
+    if (!key) return acc;
+    acc[key] = decodeURIComponent(rest.join('='));
+    return acc;
+  }, {});
+}
+function setSessionCookie(res, token) {
+  const secure = isProduction ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `dfm_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 14}${secure}`);
+}
+function clearSessionCookie(res) {
+  const secure = isProduction ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `dfm_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`);
+}
+function getTokenFromReq(req) {
+  return parseCookies(req).dfm_session || req.headers['x-session-token'] || '';
+}
+function auth(req, res, next) {
+  const token = getTokenFromReq(req);
+  if (!token || !sessions.has(token)) return res.status(401).json({ error: 'Unauthorized' });
+  req.sessionUser = sessions.get(token);
+  next();
+}
+function adminOnly(req, res, next) {
+  if (req.sessionUser.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  next();
+}
+function sanitizeUser(user) {
+  return { id: user.id, email: user.email, role: user.role, linkedDriverId: user.linkedDriverId, firstName: user.firstName, lastName: user.lastName };
+}
+
+app.get('/api/health', async (_req, res) => {
+  res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, adminConfigured: await db.hasAdminSetup() });
 });
 
-app.get('/api/drivers', (_req, res) => res.json(readDb().drivers));
-app.post('/api/drivers', (req, res) => {
-  const db = readDb();
-  const driver = {
-    id: nextId(db, 'driver'),
-    firstName: req.body.firstName,
-    lastName: req.body.lastName,
-    phone: req.body.phone || '',
-    email: req.body.email || '',
-    licenseNumber: req.body.licenseNumber || '',
-    licenseClass: req.body.licenseClass || '',
-    licenseExpiry: req.body.licenseExpiry || '',
-    status: req.body.status || 'active'
-  };
-  db.drivers.push(driver);
-  writeDb(db);
-  res.json(driver);
+app.post('/api/auth/login', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  const user = await db.findUserByEmail(email);
+  if (!user || user.isActive === false || !verifyPassword(password, user.passwordHash)) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  const token = createSessionToken();
+  const safeUser = sanitizeUser(user);
+  sessions.set(token, safeUser);
+  setSessionCookie(res, token);
+  res.json({ user: safeUser });
 });
 
-app.get('/api/vehicles', (_req, res) => res.json(readDb().vehicles));
-app.post('/api/vehicles', (req, res) => {
-  const db = readDb();
-  const vehicle = {
-    id: nextId(db, 'vehicle'),
+app.get('/api/session', auth, async (req, res) => {
+  res.json({ user: req.sessionUser });
+});
+
+app.post('/api/auth/logout', auth, async (req, res) => {
+  const token = getTokenFromReq(req);
+  sessions.delete(token);
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/dashboard', auth, async (_req, res) => res.json(await db.getDashboard()));
+app.get('/api/users', auth, adminOnly, async (_req, res) => res.json(await db.getUsers()));
+app.get('/api/drivers', auth, async (_req, res) => res.json(await db.getDrivers()));
+app.post('/api/drivers', auth, adminOnly, async (req, res) => {
+  try {
+    const driver = await db.createDriver({
+      firstName: req.body.firstName,
+      lastName: req.body.lastName,
+      phone: req.body.phone || '',
+      email: req.body.email || '',
+      licenseNumber: req.body.licenseNumber || '',
+      licenseClass: req.body.licenseClass || '',
+      licenseExpiry: req.body.licenseExpiry || '',
+      status: req.body.status || 'active',
+      createLogin: req.body.createLogin === true || req.body.createLogin === 'true',
+      userPassword: req.body.userPassword || ''
+    });
+    res.json(driver);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create driver' });
+  }
+});
+
+app.get('/api/vehicles', auth, async (_req, res) => res.json(await db.getVehicles()));
+app.post('/api/vehicles', auth, adminOnly, async (req, res) => {
+  const vehicle = await db.createVehicle({
     unitNumber: req.body.unitNumber,
     plateNumber: req.body.plateNumber || '',
     vin: req.body.vin || '',
     make: req.body.make || '',
     model: req.body.model || '',
-    year: Number(req.body.year) || '',
+    year: Number(req.body.year) || null,
     type: req.body.type || 'tractor',
     odometer: Number(req.body.odometer) || 0,
     status: req.body.status || 'active'
-  };
-  db.vehicles.push(vehicle);
-  writeDb(db);
+  });
   res.json(vehicle);
 });
 
-app.get('/api/assignments', (_req, res) => res.json(readDb().assignments));
-app.post('/api/assignments', (req, res) => {
-  const db = readDb();
-  db.assignments = db.assignments.map(a => a.driverId === Number(req.body.driverId) ? { ...a, active: false, unassignedAt: new Date().toISOString() } : a);
-  const assignment = {
-    driverId: Number(req.body.driverId),
-    vehicleId: Number(req.body.vehicleId),
-    active: true,
-    assignedAt: new Date().toISOString()
-  };
-  db.assignments.push(assignment);
-  writeDb(db);
+app.get('/api/assignments', auth, async (_req, res) => res.json(await db.getAssignments()));
+app.post('/api/assignments', auth, adminOnly, async (req, res) => {
+  const assignment = await db.assignVehicle(Number(req.body.driverId), Number(req.body.vehicleId));
   res.json(assignment);
 });
 
-app.get('/api/driver-view/:driverId', (req, res) => {
-  const db = readDb();
-  const driverId = Number(req.params.driverId);
-  const driver = db.drivers.find(d => d.id === driverId);
-  const assignment = db.assignments.find(a => a.driverId === driverId && a.active);
-  const vehicle = assignment ? db.vehicles.find(v => v.id === assignment.vehicleId) : null;
-  const activeShift = db.shifts.find(s => s.driverId === driverId && s.status === 'started');
-  res.json({ driver, vehicle, activeShift });
+app.get('/api/shifts', auth, async (_req, res) => res.json(await db.getShifts()));
+app.post('/api/shifts/start', auth, async (req, res) => {
+  try {
+    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
+    const shift = await db.startShift(driverId, Number(req.body.vehicleId), Number(req.body.startOdometer) || 0);
+    res.json(shift);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+app.post('/api/shifts/end', auth, async (req, res) => {
+  try {
+    const shift = await db.endShift(Number(req.body.shiftId), Number(req.body.endOdometer) || 0);
+    res.json(shift);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.post('/api/shifts/start', (req, res) => {
-  const db = readDb();
-  const driverId = Number(req.body.driverId);
-  const vehicleId = Number(req.body.vehicleId);
-  const existing = db.shifts.find(s => s.driverId === driverId && s.status === 'started');
-  if (existing) return res.status(400).json({ error: 'Driver already has an active shift.' });
-  const shift = {
-    id: nextId(db, 'shift'),
-    driverId,
-    vehicleId,
-    startTime: new Date().toISOString(),
-    endTime: null,
-    startOdometer: Number(req.body.startOdometer) || 0,
-    endOdometer: null,
-    status: 'started'
-  };
-  db.shifts.push(shift);
-  writeDb(db);
-  res.json(shift);
+app.get('/api/driver-view/:driverId', auth, async (req, res) => {
+  const requestedDriverId = Number(req.params.driverId);
+  const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : requestedDriverId;
+  res.json(await db.getDriverView(driverId));
 });
 
-app.post('/api/shifts/end', (req, res) => {
-  const db = readDb();
-  const shift = db.shifts.find(s => s.id === Number(req.body.shiftId));
-  if (!shift) return res.status(404).json({ error: 'Shift not found.' });
-  shift.endTime = new Date().toISOString();
-  shift.endOdometer = Number(req.body.endOdometer) || shift.endOdometer;
-  shift.status = 'completed';
-  writeDb(db);
-  res.json(shift);
-});
-
-app.get('/api/inspections', (_req, res) => res.json(readDb().inspections));
-app.post('/api/inspections', upload.array('photos', 8), (req, res) => {
-  const db = readDb();
+app.get('/api/inspections', auth, async (_req, res) => res.json(await db.getInspections()));
+app.post('/api/inspections', auth, upload.array('photos', 8), async (req, res) => {
   const itemResults = JSON.parse(req.body.itemResults || '[]');
   const issueFlag = req.body.issueFlag === 'true';
   const severity = req.body.severity || 'low';
+  const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
+  const photos = (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }));
 
-  const inspection = {
-    id: nextId(db, 'inspection'),
-    shiftId: Number(req.body.shiftId),
-    driverId: Number(req.body.driverId),
+  const inspection = await db.createInspection({
+    shiftId: Number(req.body.shiftId) || null,
+    driverId,
     vehicleId: Number(req.body.vehicleId),
-    inspectionTime: new Date().toISOString(),
     odometer: Number(req.body.odometer) || 0,
     overallStatus: req.body.overallStatus || 'pass',
     notes: req.body.notes || '',
     itemResults,
-    photos: (req.files || []).map(file => ({
-      filename: file.filename,
-      url: `/uploads/${file.filename}`
-    }))
-  };
-  db.inspections.push(inspection);
+    photos
+  });
 
   if (issueFlag) {
-    const issue = {
-      id: nextId(db, 'issue'),
+    await db.createIssue({
       shiftId: Number(req.body.shiftId) || null,
       inspectionId: inspection.id,
-      driverId: Number(req.body.driverId),
+      driverId,
       vehicleId: Number(req.body.vehicleId),
       category: req.body.category || 'other',
       severity,
       description: req.body.issueDescription || 'Inspection defect reported',
       status: 'open',
-      createdAt: new Date().toISOString(),
-      photos: inspection.photos
-    };
-    db.issues.push(issue);
-    const vehicle = db.vehicles.find(v => v.id === Number(req.body.vehicleId));
-    if (vehicle) {
-      vehicle.status = severity === 'critical' ? 'out_of_service' : 'needs_review';
-    }
+      photos
+    });
+    await db.updateVehicleStatus(Number(req.body.vehicleId), severity === 'critical' ? 'out_of_service' : 'needs_review');
   }
 
-  writeDb(db);
   res.json(inspection);
 });
 
-app.get('/api/issues', (_req, res) => res.json(readDb().issues));
-app.post('/api/issues', upload.array('photos', 8), (req, res) => {
-  const db = readDb();
-  const issue = {
-    id: nextId(db, 'issue'),
+app.get('/api/issues', auth, async (_req, res) => res.json(await db.getIssues()));
+app.post('/api/issues', auth, upload.array('photos', 8), async (req, res) => {
+  const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
+  const issue = await db.createIssue({
     shiftId: Number(req.body.shiftId) || null,
     inspectionId: null,
-    driverId: Number(req.body.driverId),
+    driverId,
     vehicleId: Number(req.body.vehicleId),
     category: req.body.category || 'other',
     severity: req.body.severity || 'low',
     description: req.body.description || '',
     status: 'open',
-    createdAt: new Date().toISOString(),
     photos: (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }))
-  };
-  db.issues.push(issue);
-  const vehicle = db.vehicles.find(v => v.id === issue.vehicleId);
-  if (vehicle) vehicle.status = issue.severity === 'critical' ? 'out_of_service' : 'needs_review';
-  writeDb(db);
+  });
+  await db.updateVehicleStatus(issue.vehicleId, issue.severity === 'critical' ? 'out_of_service' : 'needs_review');
   res.json(issue);
 });
-
-app.patch('/api/issues/:id', (req, res) => {
-  const db = readDb();
-  const issue = db.issues.find(i => i.id === Number(req.params.id));
-  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
-  issue.status = req.body.status || issue.status;
-  issue.resolutionNotes = req.body.resolutionNotes || issue.resolutionNotes || '';
-  if (issue.status === 'closed') {
-    issue.closedAt = new Date().toISOString();
-    const vehicle = db.vehicles.find(v => v.id === issue.vehicleId);
-    if (vehicle && vehicle.status !== 'active') vehicle.status = 'active';
+app.patch('/api/issues/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const issue = await db.updateIssue(Number(req.params.id), req.body.status, req.body.resolutionNotes);
+    if (issue.status === 'closed' && issue.vehicleId) await db.updateVehicleStatus(issue.vehicleId, 'active');
+    res.json(issue);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
-  writeDb(db);
-  res.json(issue);
 });
 
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, () => {
-  console.log(`Driver fleet prototype running on port ${PORT}`);
-});
+(async () => {
+  try {
+    await db.init();
+    app.listen(PORT, () => {
+      console.log(`Driver Fleet Management listening on ${PORT}`);
+      console.log(`Database mode: ${process.env.DATABASE_URL ? 'PostgreSQL' : 'Local JSON fallback'}`);
+      console.log(`Uploads dir: ${UPLOADS_DIR}`);
+      console.log(`Admin configured: ${Boolean(process.env.ADMIN_PASSWORD)}`);
+    });
+  } catch (error) {
+    console.error('Startup failed', error);
+    process.exit(1);
+  }
+})();
