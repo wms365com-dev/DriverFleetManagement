@@ -237,6 +237,21 @@ app.post('/api/shifts/end', auth, requireCompanyScope, async (req, res) => {
   }
 });
 
+
+app.post('/api/location', auth, requireCompanyScope, async (req, res) => {
+  try {
+    const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
+    if (!driverId) return res.status(400).json({ error: 'Driver is required' });
+    const lat = Number(req.body.lat);
+    const lng = Number(req.body.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'Valid latitude and longitude are required' });
+    const driver = await db.updateDriverLocation(req.companyId, driverId, lat, lng, true);
+    res.json(driver);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update location' });
+  }
+});
+
 app.get('/api/driver-view/:driverId', auth, requireCompanyScope, async (req, res) => {
   const requestedDriverId = Number(req.params.driverId);
   const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : requestedDriverId;

@@ -12,8 +12,8 @@ const seed = {
   companies: [seedCompany],
   users: [],
   drivers: [
-    { id: 1, companyId: 1, firstName: 'Maria', lastName: 'Lopez', phone: '555-200-3000', email: 'maria@fleetdemo.com', licenseNumber: 'AZ-443301', licenseClass: 'AZ', licenseExpiry: '2028-05-30', status: 'active' },
-    { id: 2, companyId: 1, firstName: 'AJ', lastName: 'Thompson', phone: '555-100-2211', email: 'aj@fleetdemo.com', licenseNumber: 'AZ-778210', licenseClass: 'AZ', licenseExpiry: '2027-12-31', status: 'active' }
+    { id: 1, companyId: 1, firstName: 'Maria', lastName: 'Lopez', phone: '555-200-3000', email: 'maria@fleetdemo.com', licenseNumber: 'AZ-443301', licenseClass: 'AZ', licenseExpiry: '2028-05-30', status: 'active', lastLat: 43.6532, lastLng: -79.3832, lastSeenAt: new Date().toISOString(), trackingEnabled: false },
+    { id: 2, companyId: 1, firstName: 'AJ', lastName: 'Thompson', phone: '555-100-2211', email: 'aj@fleetdemo.com', licenseNumber: 'AZ-778210', licenseClass: 'AZ', licenseExpiry: '2027-12-31', status: 'active', lastLat: 43.7001, lastLng: -79.4163, lastSeenAt: new Date().toISOString(), trackingEnabled: false }
   ],
   vehicles: [
     { id: 1, companyId: 1, unitNumber: 'TRK-101', plateNumber: 'ABCD123', vin: '1HGBH41JXMN109186', make: 'Freightliner', model: 'Cascadia', year: 2022, type: 'tractor', odometer: 124500, status: 'active' },
@@ -85,7 +85,11 @@ function mapDriver(r) {
     licenseNumber: r.license_number || r.licenseNumber || '',
     licenseClass: r.license_class || r.licenseClass || '',
     licenseExpiry: (r.license_expiry || r.licenseExpiry) ? String(r.license_expiry || r.licenseExpiry).slice(0, 10) : '',
-    status: r.status
+    status: r.status,
+    lastLat: r.last_lat ?? r.lastLat ?? null,
+    lastLng: r.last_lng ?? r.lastLng ?? null,
+    lastSeenAt: r.last_seen_at || r.lastSeenAt || null,
+    trackingEnabled: r.tracking_enabled ?? r.trackingEnabled ?? false
   };
 }
 function mapVehicle(r) {
@@ -187,7 +191,11 @@ async function initPostgres() {
     license_number TEXT,
     license_class TEXT,
     license_expiry DATE,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    last_lat DOUBLE PRECISION,
+    last_lng DOUBLE PRECISION,
+    last_seen_at TIMESTAMPTZ,
+    tracking_enabled BOOLEAN NOT NULL DEFAULT false
   );
   CREATE TABLE IF NOT EXISTS vehicles (
     id SERIAL PRIMARY KEY,
@@ -252,12 +260,16 @@ async function initPostgres() {
     photos JSONB NOT NULL DEFAULT '[]'::jsonb
   );`;
   await pool.query(schema);
+  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
 
   const companyCount = Number((await pool.query('SELECT COUNT(*) FROM companies')).rows[0].count);
   if (!companyCount) {
     await pool.query(`INSERT INTO companies (id,name,code,status,created_at) VALUES ($1,$2,$3,$4,$5)`, [seedCompany.id, seedCompany.name, seedCompany.code, seedCompany.status, seedCompany.createdAt]);
     for (const d of seed.drivers) {
-      await pool.query(`INSERT INTO drivers (id,company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [d.id,d.companyId,d.firstName,d.lastName,d.phone,d.email,d.licenseNumber,d.licenseClass,d.licenseExpiry,d.status]);
+      await pool.query(`INSERT INTO drivers (id,company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status,last_lat,last_lng,last_seen_at,tracking_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [d.id,d.companyId,d.firstName,d.lastName,d.phone,d.email,d.licenseNumber,d.licenseClass,d.licenseExpiry,d.status,d.lastLat||null,d.lastLng||null,d.lastSeenAt||null,d.trackingEnabled||false]);
     }
     for (const v of seed.vehicles) {
       await pool.query(`INSERT INTO vehicles (id,company_id,unit_number,plate_number,vin,make,model,year,type,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [v.id,v.companyId,v.unitNumber,v.plateNumber,v.vin,v.make,v.model,v.year,v.type,v.odometer,v.status]);
@@ -293,8 +305,12 @@ const commonMethods = {
       outOfService: vehicles.filter(v => v.status === 'out_of_service').length,
       drivers: drivers.length,
       vehicles: vehicles.length,
-      users: users.length
+      users: users.length,
+      trackedDrivers: drivers.filter(d => d.lastLat && d.lastLng).length
     };
+  },
+  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) {
+    throw new Error('Not implemented');
   }
 };
 
@@ -326,7 +342,7 @@ const fileDb = {
   async getDrivers(companyId) { return readFileDb().drivers.filter(d => Number(d.companyId) === Number(companyId)); },
   async createDriver(companyId, data) {
     const db = readFileDb();
-    const driver = { id: nextId(db.drivers), companyId, firstName: data.firstName, lastName: data.lastName, phone: data.phone || '', email: data.email || '', licenseNumber: data.licenseNumber || '', licenseClass: data.licenseClass || '', licenseExpiry: data.licenseExpiry || '', status: data.status || 'active' };
+    const driver = { id: nextId(db.drivers), companyId, firstName: data.firstName, lastName: data.lastName, phone: data.phone || '', email: data.email || '', licenseNumber: data.licenseNumber || '', licenseClass: data.licenseClass || '', licenseExpiry: data.licenseExpiry || '', status: data.status || 'active', lastLat: null, lastLng: null, lastSeenAt: null, trackingEnabled: false };
     db.drivers.push(driver);
     if (data.createLogin && data.userPassword) {
       db.users.push({ id: nextId(db.users), companyId, email: String(data.email || '').toLowerCase(), passwordHash: hashPassword(data.userPassword), role: 'driver', linkedDriverId: driver.id, firstName: data.firstName, lastName: data.lastName, isActive: true });
@@ -403,6 +419,17 @@ const fileDb = {
     if (vehicle) { vehicle.status = status; writeFileDb(db); }
     return vehicle;
   },
+  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) {
+    const db = readFileDb();
+    const driver = db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(driverId));
+    if (!driver) throw new Error('Driver not found.');
+    driver.lastLat = Number(lat);
+    driver.lastLng = Number(lng);
+    driver.lastSeenAt = new Date().toISOString();
+    driver.trackingEnabled = !!trackingEnabled;
+    writeFileDb(db);
+    return driver;
+  },
   ...commonMethods
 };
 
@@ -436,7 +463,7 @@ const pgDb = {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const r = await client.query(`INSERT INTO drivers (company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [companyId, data.firstName, data.lastName, data.phone || '', data.email || '', data.licenseNumber || '', data.licenseClass || '', data.licenseExpiry || null, data.status || 'active']);
+      const r = await client.query(`INSERT INTO drivers (company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status,last_lat,last_lng,last_seen_at,tracking_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,NULL,NULL,false) RETURNING *`, [companyId, data.firstName, data.lastName, data.phone || '', data.email || '', data.licenseNumber || '', data.licenseClass || '', data.licenseExpiry || null, data.status || 'active']);
       const driver = mapDriver(r.rows[0]);
       if (data.createLogin && data.userPassword) {
         await client.query(`INSERT INTO users (company_id,email,password_hash,role,linked_driver_id,first_name,last_name,is_active) VALUES ($1,$2,$3,'driver',$4,$5,$6,true)`, [companyId, String(data.email || '').toLowerCase(), hashPassword(data.userPassword), driver.id, data.firstName, data.lastName]);
@@ -461,6 +488,7 @@ const pgDb = {
   async getIssues(companyId) { const r = await pool.query('SELECT * FROM issues WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapIssue); },
   async createIssue(companyId, payload) { const r = await pool.query(`INSERT INTO issues (company_id,shift_id,inspection_id,driver_id,vehicle_id,category,severity,description,status,resolution_notes,created_at,photos) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.inspectionId || null, payload.driverId || null, payload.vehicleId || null, payload.category || 'other', payload.severity || 'low', payload.description || '', payload.status || 'open', payload.resolutionNotes || '', JSON.stringify(payload.photos || [])]); return mapIssue(r.rows[0]); },
   async updateIssue(companyId, id, status, resolutionNotes) { const r = await pool.query(`UPDATE issues SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE company_id=$1 AND id=$2 RETURNING *`, [companyId, id, status, resolutionNotes || null]); if (!r.rows[0]) throw new Error('Issue not found.'); return mapIssue(r.rows[0]); },
+  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) { const r = await pool.query('UPDATE drivers SET last_lat=$3,last_lng=$4,last_seen_at=NOW(),tracking_enabled=$5 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, driverId, Number(lat), Number(lng), !!trackingEnabled]); if (!r.rows[0]) throw new Error('Driver not found.'); return mapDriver(r.rows[0]); },
   async updateVehicleStatus(companyId, vehicleId, status) { const r = await pool.query('UPDATE vehicles SET status=$3 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, vehicleId, status]); return r.rows[0] ? mapVehicle(r.rows[0]) : null; },
   ...commonMethods
 };

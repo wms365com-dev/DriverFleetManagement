@@ -12,7 +12,9 @@ const state = {
   selectedCompanyId: null,
   selectedDriverId: null,
   activeView: null,
-  toastTimer: null
+  toastTimer: null,
+  trackingWatch: null,
+  trackingTimer: null
 };
 
 const inspectionItems = [
@@ -75,7 +77,7 @@ function renderLogin() {
       <div>
         <p class="eyebrow">Secure fleet portal</p>
         <h1>Driver Fleet Management</h1>
-        <p class="subtle">A modern command center for fleet operations, inspections, assignments, and driver activity.</p>
+        <p class="subtle">Sign in with your company account to manage drivers, support users, inspections, and fleet activity.</p>
       </div>
       <form id="loginForm" class="stack">
         <label>Email<input type="email" name="email" autocomplete="username" required /></label>
@@ -93,6 +95,7 @@ function getNavItems() {
   if (isAdminLike()) items.push(['users', 'Users']);
   if (isStaffLike()) {
     items.push(['dashboard', 'Dashboard']);
+    items.push(['map', 'Live Map']);
     items.push(['drivers', 'Drivers']);
     items.push(['vehicles', 'Vehicles']);
     items.push(['assignments', 'Assignments']);
@@ -100,7 +103,7 @@ function getNavItems() {
     items.push(['inspections', 'Inspections']);
     items.push(['issues', 'Issues']);
   }
-  items.push(['driver', state.user?.role === 'driver' ? 'Driver Workspace' : 'Driver Workspace']);
+  items.push(['driver', state.user?.role === 'driver' ? 'My Mobile Workspace' : 'Driver Mobile']);
   return items;
 }
 
@@ -122,7 +125,7 @@ function renderShell() {
         <div class="brand-row">
           <div class="brand-mark small">DF</div>
           <div>
-            <h2>Fleet Command</h2>
+            <h2>Fleet Portal</h2>
             <p>${state.user.firstName || state.user.email}</p>
           </div>
         </div>
@@ -143,18 +146,21 @@ function renderShell() {
         ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${label}</button>`).join('')}
       </nav>
       <div class="stack compact">
-        <div class="tiny">Secure multi-company workspace</div>
+        <div class="tiny">Version 6 · Multi-company roles</div>
         <button id="logoutBtn" class="btn ghost">Log Out</button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar glass">
         <div>
-          <p class="eyebrow">Real-time operations</p>
+          <p class="eyebrow">Operations workspace</p>
           <h1>${getViewTitle(activeView)}</h1>
           <p class="subtle">${company?.name || (state.user.role === 'super_user' ? 'Platform administration' : 'Company workspace')}</p>
         </div>
-        <div class="right-chip">${new Date().toLocaleDateString()}</div>
+        <div class="topbar-actions">
+          ${state.companies.length > 1 ? `<label class="topbar-switch">Company<select id="topbarCompanyScopeSelect">${state.companies.map(c => `<option value="${c.id}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${c.name}</option>`).join('')}</select></label>` : ''}
+          <div class="right-chip">${new Date().toLocaleDateString()}</div>
+        </div>
       </header>
       <section id="viewContainer"></section>
     </main>
@@ -163,18 +169,19 @@ function renderShell() {
 
 function getViewTitle(view) {
   const titles = {
-    companies: 'Company Control Center',
-    users: 'Team & Access',
-    dashboard: 'Fleet Overview',
-    drivers: 'Drivers',
-    vehicles: 'Vehicles',
-    assignments: 'Assignments',
-    shifts: 'Shift Activity',
-    inspections: 'Inspection Center',
-    issues: 'Alerts & Issues',
+    companies: 'Company Setup',
+    users: 'Users & Access',
+    dashboard: 'Operations Dashboard',
+    map: 'Live Driver Map',
+    drivers: 'Driver Records',
+    vehicles: 'Fleet Vehicles',
+    assignments: 'Driver Assignments',
+    shifts: 'Shift Timeline',
+    inspections: 'Inspection Feed',
+    issues: 'Issue Queue',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
   };
-  return titles[view] || 'Fleet Command';
+  return titles[view] || 'Fleet Portal';
 }
 
 function bindLogin() {
@@ -203,6 +210,7 @@ function renderView(view) {
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
+  if (view === 'map') return renderMapView();
   if (view === 'drivers') return renderDrivers();
   if (view === 'vehicles') return renderVehicles();
   if (view === 'assignments') return renderAssignments();
@@ -223,15 +231,19 @@ function bindShell() {
     };
   });
 
+  const updateScope = async value => {
+    state.selectedCompanyId = Number(value);
+    await loadEverything();
+    render();
+    setToast('Company scope updated', 'success');
+  };
+
   const scopeSelect = document.getElementById('companyScopeSelect');
-  if (scopeSelect) {
-    scopeSelect.onchange = async () => {
-      state.selectedCompanyId = Number(scopeSelect.value);
-      await loadEverything();
-      render();
-      setToast('Company scope updated', 'success');
-    };
-  }
+  if (scopeSelect) scopeSelect.onchange = () => updateScope(scopeSelect.value);
+  const topbarScopeSelect = document.getElementById('topbarCompanyScopeSelect');
+  if (topbarScopeSelect) topbarScopeSelect.onchange = () => updateScope(topbarScopeSelect.value);
+
+  startDriverTracking();
 
   document.getElementById('logoutBtn').onclick = async () => {
     try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
@@ -240,6 +252,7 @@ function bindShell() {
     state.users = [];
     state.selectedCompanyId = null;
     state.activeView = null;
+    stopDriverTracking();
     render();
   };
 }
@@ -321,6 +334,59 @@ function renderDashboard() {
   </div>`;
 }
 
+
+function renderMapView() {
+  const tracked = state.drivers.filter(d => Number.isFinite(Number(d.lastLat)) && Number.isFinite(Number(d.lastLng)));
+  const bounds = tracked.length ? {
+    minLat: Math.min(...tracked.map(d => Number(d.lastLat))),
+    maxLat: Math.max(...tracked.map(d => Number(d.lastLat))),
+    minLng: Math.min(...tracked.map(d => Number(d.lastLng))),
+    maxLng: Math.max(...tracked.map(d => Number(d.lastLng)))
+  } : { minLat: 43.60, maxLat: 43.80, minLng: -79.60, maxLng: -79.20 };
+  const latRange = Math.max(0.02, bounds.maxLat - bounds.minLat);
+  const lngRange = Math.max(0.02, bounds.maxLng - bounds.minLng);
+  const markers = tracked.map(driver => {
+    const left = ((Number(driver.lastLng) - bounds.minLng) / lngRange) * 100;
+    const top = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
+    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span></button>`;
+  }).join('');
+  const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
+  return `
+    <section class="map-layout">
+      <div class="panel glass map-panel">
+        <div class="panel-head"><h3>Live Driver Tracking</h3><p>Browser GPS updates when drivers allow location access on mobile</p></div>
+        <div class="map-canvas">
+          <div class="map-grid"></div>
+          ${markers || '<div class="map-empty">No live driver locations yet. Drivers will appear here after signing in and allowing location tracking.</div>'}
+        </div>
+      </div>
+      <div class="stack">
+        <div class="panel glass">
+          <div class="panel-head"><h3>Tracked Drivers</h3><p>${tracked.length} active coordinates</p></div>
+          <div class="list-grid compact-list">
+            ${state.drivers.map(driver => `
+              <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
+                <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(driver.status)}</div>
+                <div class="tiny">${driver.email || driver.phone || 'No contact set'}</div>
+                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : 'Awaiting first location update'}</div>
+              </button>`).join('')}
+          </div>
+        </div>
+        <div class="panel glass">
+          <div class="panel-head"><h3>Selected Driver</h3><p>Location and assigned vehicle</p></div>
+          ${selected ? `
+            <div class="driver-location-card">
+              <div class="card-row"><strong>${selected.firstName} ${selected.lastName}</strong>${statusTag(selected.trackingEnabled ? 'tracked' : 'ready')}</div>
+              <div class="tiny">Coordinates</div>
+              <div class="coords">${Number(selected.lastLat).toFixed(5)}, ${Number(selected.lastLng).toFixed(5)}</div>
+              <div class="tiny">${selected.lastSeenAt ? `Last update ${fmt(selected.lastSeenAt)}` : 'No update yet'}</div>
+              <div class="tiny">Assigned vehicle: ${vehicleName((state.assignments.find(a => Number(a.driverId) === Number(selected.id) && a.active) || {}).vehicleId)}</div>
+            </div>` : '<div class="map-empty small">Select a driver to inspect location details.</div>'}
+        </div>
+      </div>
+    </section>`;
+}
+
 function renderDrivers() {
   return `
     <div class="two-col">
@@ -394,7 +460,7 @@ function renderAssignments() {
 function renderShifts() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Shift Activity</h3><p>Recent driver activity</p></div>
+      <div class="panel-head"><h3>Shift Timeline</h3><p>Recent driver activity</p></div>
       <div class="table-wrap"><table><thead><tr><th>Driver</th><th>Vehicle</th><th>Started</th><th>Ended</th><th>Status</th></tr></thead><tbody>
       ${state.shifts.map(s => `<tr><td>${driverName(s.driverId)}</td><td>${vehicleName(s.vehicleId)}</td><td>${fmt(s.startTime)}</td><td>${fmt(s.endTime)}</td><td>${statusTag(s.status)}</td></tr>`).join('') || '<tr><td colspan="5">No shifts yet</td></tr>'}
       </tbody></table></div>
@@ -404,7 +470,7 @@ function renderShifts() {
 function renderInspections() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Inspection Center</h3><p>Submitted pre-trip inspections</p></div>
+      <div class="panel-head"><h3>Inspection Feed</h3><p>Submitted pre-trip inspections</p></div>
       <div class="inspection-grid">${state.inspections.map(i => `<article class="inspection-card"><div class="panel-head"><strong>#${i.id} · ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} · ${fmt(i.inspectionTime)}</p><p>${i.notes || 'No notes.'}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${p.url}" alt="inspection photo" />`).join('')}</div></article>`).join('') || '<p>No inspections yet.</p>'}</div>
     </section>`;
 }
@@ -412,7 +478,7 @@ function renderInspections() {
 function renderIssues() {
   return `
     <section class="panel glass">
-      <div class="panel-head"><h3>Alerts & Issues</h3><p>Open and closed defects</p></div>
+      <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
       <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} · ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${i.description}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${p.url}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${i.id}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
     </section>`;
 }
@@ -447,6 +513,10 @@ function renderDriverWorkspace() {
             <div><p class="tiny">Vehicle status</p>${vehicle ? statusTag(vehicle.status) : '—'}</div>
           </div>
           <div class="mobile-actions">
+            <div class="quick-action-grid">
+              <div class="mobile-mini-card"><span>Tracking</span><strong>${driver.lastSeenAt ? 'Live' : 'Pending'}</strong><small>${driver.lastSeenAt ? fmt(driver.lastSeenAt) : 'Allow GPS access'}</small></div>
+              <div class="mobile-mini-card"><span>Open issues</span><strong>${state.issues.filter(i => Number(i.driverId) === Number(driver.id) && i.status !== 'closed').length}</strong><small>Need attention</small></div>
+            </div>
             ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${vehicle.id}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit">Start Shift</button></form>` : ''}
             ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${activeShift.id}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit">End Shift</button></form>` : ''}
           </div>
@@ -501,6 +571,12 @@ function bindView(view) {
   if (view === 'assignments') {
     const form = document.getElementById('assignmentForm');
     if (form) form.onsubmit = submitJsonForm('/api/assignments');
+  }
+  if (view === 'map') {
+    document.querySelectorAll('[data-driver-focus],[data-driver-marker]').forEach(btn => btn.onclick = () => {
+      state.selectedDriverId = Number(btn.dataset.driverFocus || btn.dataset.driverMarker);
+      render();
+    });
   }
   if (view === 'issues') {
     document.querySelectorAll('.close-issue').forEach(btn => btn.onclick = async () => {
@@ -575,6 +651,37 @@ function bindDriverWorkspace() {
       setToast('Issue reported', 'success');
     } catch (error) { setToast(error.message, 'error'); }
   };
+}
+
+
+function stopDriverTracking() {
+  if (state.trackingWatch) navigator.geolocation?.clearWatch?.(state.trackingWatch);
+  if (state.trackingTimer) clearInterval(state.trackingTimer);
+  state.trackingWatch = null;
+  state.trackingTimer = null;
+}
+
+async function pushDriverLocation(lat, lng) {
+  try {
+    await api('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lng }) });
+    if (state.user?.linkedDriverId) {
+      await loadEverything();
+      if (state.activeView === 'map' || state.activeView === 'driver') render();
+    }
+  } catch (error) {
+    console.warn('Location update failed', error.message);
+  }
+}
+
+function startDriverTracking() {
+  stopDriverTracking();
+  if (state.user?.role !== 'driver' || !navigator.geolocation) return;
+  const onSuccess = position => pushDriverLocation(position.coords.latitude, position.coords.longitude);
+  const onError = () => {};
+  state.trackingWatch = navigator.geolocation.watchPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 20000, timeout: 15000 });
+  state.trackingTimer = setInterval(() => {
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 20000, timeout: 15000 });
+  }, 45000);
 }
 
 function submitJsonForm(url) {
