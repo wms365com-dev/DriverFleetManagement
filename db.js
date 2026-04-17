@@ -260,13 +260,6 @@ async function initPostgres() {
     photos JSONB NOT NULL DEFAULT '[]'::jsonb
   );`;
   await pool.query(schema);
-  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE assignments ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
-  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
@@ -288,14 +281,6 @@ async function initPostgres() {
       await pool.query(`INSERT INTO issues (id,company_id,shift_id,inspection_id,driver_id,vehicle_id,category,severity,description,status,resolution_notes,created_at,closed_at,photos) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)`, [i.id,i.companyId,i.shiftId,i.inspectionId,i.driverId,i.vehicleId,i.category,i.severity,i.description,i.status,i.resolutionNotes,i.createdAt,i.closedAt,JSON.stringify(i.photos)]);
     }
   }
-  await pool.query(`INSERT INTO companies (id,name,code,status) VALUES (1,'Default Company','DEFAULT','active') ON CONFLICT (id) DO NOTHING`);
-  await pool.query(`UPDATE users SET company_id=1 WHERE company_id IS NULL AND role <> 'super_user'`);
-  await pool.query(`UPDATE drivers SET company_id=1 WHERE company_id IS NULL`);
-  await pool.query(`UPDATE vehicles SET company_id=1 WHERE company_id IS NULL`);
-  await pool.query(`UPDATE assignments SET company_id=1 WHERE company_id IS NULL`);
-  await pool.query(`UPDATE shifts SET company_id=1 WHERE company_id IS NULL`);
-  await pool.query(`UPDATE inspections SET company_id=1 WHERE company_id IS NULL`);
-  await pool.query(`UPDATE issues SET company_id=1 WHERE company_id IS NULL`);
   await ensureSuperUser();
 }
 

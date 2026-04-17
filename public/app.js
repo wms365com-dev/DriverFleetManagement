@@ -15,14 +15,11 @@ const state = {
   toastTimer: null,
   trackingWatch: null,
   trackingTimer: null,
-  mapRefreshTimer: null,
   gpsStatus: 'idle',
-  gpsPermission: 'unknown',
-  gpsError: '',
-  gpsLastCoords: null,
+  gpsMessage: 'Tap Allow GPS to start location tracking.',
   gpsLastUpdate: null,
-  locationPromptOpen: false,
-  formLocks: new Set()
+  gpsAccuracy: null,
+  submitLocks: {}
 };
 
 const inspectionItems = [
@@ -36,80 +33,6 @@ function setToast(message, type = '') {
   toast.textContent = message;
   clearTimeout(state.toastTimer);
   state.toastTimer = setTimeout(() => toast.className = 'toast', 2600);
-}
-
-function setGpsState(next = {}) {
-  Object.assign(state, next);
-  if (state.user && state.activeView === 'driver') {
-    const container = document.getElementById('viewContainer');
-    if (container) {
-      container.innerHTML = renderView(state.activeView || getDefaultView());
-      bindView(state.activeView || getDefaultView());
-    }
-  }
-}
-function lockForm(form, button, busyText = 'Saving...') {
-  if (!form || !button) return () => {};
-  const lockKey = form.id || busyText;
-  if (state.formLocks.has(lockKey)) return null;
-  state.formLocks.add(lockKey);
-  button.dataset.originalHtml = button.innerHTML;
-  button.disabled = true;
-  button.classList.add('is-loading');
-  button.innerHTML = `<span class="btn-spinner"></span>${busyText}`;
-  form.classList.add('is-submitting');
-  const progress = form.querySelector('.form-progress');
-  if (progress) progress.classList.add('show');
-  return () => {
-    state.formLocks.delete(lockKey);
-    button.disabled = false;
-    button.classList.remove('is-loading');
-    button.innerHTML = button.dataset.originalHtml || button.textContent || 'Submit';
-    form.classList.remove('is-submitting');
-    const progress = form.querySelector('.form-progress');
-    if (progress) progress.classList.remove('show');
-  };
-}
-function enhanceFormForFeedback(form) {
-  if (!form || form.querySelector('.form-progress')) return;
-  const progress = document.createElement('div');
-  progress.className = 'form-progress';
-  progress.innerHTML = '<div class="form-progress-bar"></div>';
-  form.prepend(progress);
-}
-function ensureLocationPermissionUI() {
-  return `
-    <div class="gps-status-card ${state.gpsStatus}">
-      <div class="card-row">
-        <div>
-          <p class="tiny">GPS Status</p>
-          <strong>${gpsStatusLabel()}</strong>
-        </div>
-        <span class="gps-dot ${state.gpsStatus}"></span>
-      </div>
-      <div class="tiny">${gpsStatusDetail()}</div>
-      ${state.gpsLastCoords ? `<div class="tiny">Coords ${Number(state.gpsLastCoords.lat).toFixed(5)}, ${Number(state.gpsLastCoords.lng).toFixed(5)}</div>` : ''}
-      ${state.gpsLastUpdate ? `<div class="tiny">Last update ${fmt(state.gpsLastUpdate)}</div>` : ''}
-      <div class="gps-actions">
-        <button id="enableGpsBtn" class="btn primary" type="button">${state.gpsStatus === 'tracking' ? 'Refresh GPS' : 'Allow GPS'}</button>
-      </div>
-    </div>`;
-}
-function gpsStatusLabel() {
-  if (state.gpsStatus === 'tracking') return 'Tracking Active';
-  if (state.gpsStatus === 'pending') return 'Waiting for GPS permission';
-  if (state.gpsStatus === 'requesting') return 'Requesting GPS access';
-  if (state.gpsStatus === 'blocked') return 'Location access blocked';
-  if (state.gpsStatus === 'error') return 'GPS unavailable';
-  return 'Not tracking';
-}
-function gpsStatusDetail() {
-  if (state.gpsStatus === 'tracking') return 'Location updates send every 10–15 seconds during an active session.';
-  if (state.gpsStatus === 'pending') return 'Tap Allow GPS and approve location access in your browser.';
-  if (state.gpsStatus === 'requesting') return 'Approve the browser prompt to start live driver tracking.';
-  if (state.gpsStatus === 'blocked') return 'Please enable Location Services for this site in your phone browser settings.';
-  if (state.gpsStatus === 'error') return state.gpsError || 'Unable to get a stable GPS signal yet.';
-  return 'Driver location tracking is currently off.';
 }
 
 function appendCompanyId(url) {
@@ -142,6 +65,45 @@ function getCurrentCompany() { return byId(state.companies, state.selectedCompan
 function isSuper() { return state.user?.role === 'super_user'; }
 function isAdminLike() { return ['super_user', 'admin'].includes(state.user?.role); }
 function isStaffLike() { return ['super_user', 'admin', 'support_staff'].includes(state.user?.role); }
+
+function setGpsState(status, message = '', extra = {}) {
+  state.gpsStatus = status;
+  state.gpsMessage = message || state.gpsMessage;
+  if (Object.prototype.hasOwnProperty.call(extra, 'lastUpdate')) state.gpsLastUpdate = extra.lastUpdate;
+  if (Object.prototype.hasOwnProperty.call(extra, 'accuracy')) state.gpsAccuracy = extra.accuracy;
+  const el = document.getElementById('gpsStatusCard');
+  if (!el) return;
+  el.dataset.status = status;
+  const title = document.getElementById('gpsStatusTitle');
+  const msg = document.getElementById('gpsStatusMessage');
+  const meta = document.getElementById('gpsStatusMeta');
+  if (title) title.textContent = ({idle:'Not tracking',pending:'Waiting for GPS permission',requesting:'Requesting GPS permission...',tracking:'Tracking active',blocked:'Location access blocked',error:'GPS unavailable'})[status] || 'GPS status';
+  if (msg) msg.textContent = state.gpsMessage || '';
+  if (meta) meta.textContent = status === 'tracking' ? `Last update ${new Date(state.gpsLastUpdate || Date.now()).toLocaleTimeString()}${state.gpsAccuracy ? ` · ±${Math.round(state.gpsAccuracy)}m` : ''}` : '';
+}
+
+function lockButton(btn, text='Saving...') {
+  if (!btn) return () => {};
+  const original = btn.dataset.originalText || btn.textContent;
+  btn.dataset.originalText = original;
+  btn.disabled = true;
+  btn.classList.add('is-loading');
+  btn.textContent = text;
+  return () => { btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = original; };
+}
+
+async function guardedSubmit(formKey, btn, text, action) {
+  if (state.submitLocks[formKey]) return;
+  state.submitLocks[formKey] = true;
+  const unlockBtn = lockButton(btn, text);
+  setToast('Processing... please wait');
+  try {
+    await action();
+  } finally {
+    state.submitLocks[formKey] = false;
+    unlockBtn();
+  }
+}
 
 function render() {
   document.getElementById('app').innerHTML = `
@@ -267,13 +229,8 @@ function getViewTitle(view) {
 }
 
 function bindLogin() {
-  const loginForm = document.getElementById('loginForm');
-  enhanceFormForFeedback(loginForm);
-  loginForm.onsubmit = async e => {
+  document.getElementById('loginForm').onsubmit = async e => {
     e.preventDefault();
-    const button = loginForm.querySelector('button[type="submit"]');
-    const unlock = lockForm(loginForm, button, 'Signing in...');
-    if (!unlock) return;
     try {
       const form = new FormData(e.target);
       const body = Object.fromEntries(form);
@@ -289,8 +246,6 @@ function bindLogin() {
       setToast('Logged in successfully', 'success');
     } catch (error) {
       setToast(error.message, 'error');
-    } finally {
-      unlock();
     }
   };
 }
@@ -440,11 +395,10 @@ function renderMapView() {
     return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span></button>`;
   }).join('');
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
-  startMapAutoRefresh();
   return `
     <section class="map-layout">
       <div class="panel glass map-panel">
-        <div class="panel-head"><h3>Live Driver Tracking</h3><p>Live positions refresh automatically and highlight inactive drivers</p><span class="right-chip">Auto refresh 15s</span></div>
+        <div class="panel-head"><h3>Live Driver Tracking</h3><p>Browser GPS updates when drivers allow location access on mobile</p></div>
         <div class="map-canvas">
           <div class="map-grid"></div>
           ${markers || '<div class="map-empty">No live driver locations yet. Drivers will appear here after signing in and allowing location tracking.</div>'}
@@ -454,14 +408,12 @@ function renderMapView() {
         <div class="panel glass">
           <div class="panel-head"><h3>Tracked Drivers</h3><p>${tracked.length} active coordinates</p></div>
           <div class="list-grid compact-list">
-            ${state.drivers.map(driver => {
-              const stale = driver.lastSeenAt && (Date.now() - new Date(driver.lastSeenAt).getTime()) > 120000;
-              return `
-              <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''} ${stale ? 'stale' : ''}" data-driver-focus="${driver.id}">
-                <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(stale ? 'inactive' : driver.status)}</div>
+            ${state.drivers.map(driver => `
+              <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
+                <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(driver.status)}</div>
                 <div class="tiny">${driver.email || driver.phone || 'No contact set'}</div>
-                <div class="tiny">${driver.lastSeenAt ? `Last ping ${fmt(driver.lastSeenAt)}` : 'Awaiting first location update'}</div>
-              </button>`;}).join('')}
+                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : 'Awaiting first location update'}</div>
+              </button>`).join('')}
           </div>
         </div>
         <div class="panel glass">
@@ -606,11 +558,11 @@ function renderDriverWorkspace() {
           </div>
           <div class="mobile-actions">
             <div class="quick-action-grid">
-              ${ensureLocationPermissionUI()}
+              <div class="mobile-mini-card gps-status-card" id="gpsStatusCard" data-status="${driver.lastSeenAt ? 'tracking' : 'idle'}"><span>GPS Status</span><strong id="gpsStatusTitle">${driver.lastSeenAt ? 'Tracking active' : 'Not tracking'}</strong><small id="gpsStatusMessage">${driver.lastSeenAt ? 'Driver location is updating.' : 'Tap Allow GPS to start location tracking.'}</small><small id="gpsStatusMeta">${driver.lastSeenAt ? fmt(driver.lastSeenAt) : ''}</small><button class="btn primary small-btn" type="button" id="allowGpsBtn">Allow GPS</button></div>
               <div class="mobile-mini-card"><span>Open issues</span><strong>${state.issues.filter(i => Number(i.driverId) === Number(driver.id) && i.status !== 'closed').length}</strong><small>Need attention</small></div>
             </div>
-            ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${vehicle.id}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit">Start Shift</button></form>` : ''}
-            ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${activeShift.id}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit">End Shift</button></form>` : ''}
+            ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${vehicle.id}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : ''}
+            ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${activeShift.id}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit" id="endShiftBtn">End Shift</button></form>` : ''}
           </div>
           ${vehicle ? `
             <form id="inspectionForm" class="mobile-card stack compact" enctype="multipart/form-data">
@@ -626,7 +578,7 @@ function renderDriverWorkspace() {
               <label>Issue description<textarea name="issueDescription"></textarea></label>
               <label>Photos<input class="photo-input" data-preview="inspectionPreview" type="file" name="photos" multiple accept="image/*" capture="environment" /></label>
               <div class="photo-row" id="inspectionPreview"></div>
-              <button class="btn primary" type="submit">Submit Inspection</button>
+              <button class="btn primary" type="submit" id="inspectionSubmitBtn">Submit Inspection</button>
             </form>
             <form id="quickIssueForm" class="mobile-card stack compact" enctype="multipart/form-data">
               <h3>Quick Issue Report</h3>
@@ -636,7 +588,7 @@ function renderDriverWorkspace() {
               <label>Description<textarea name="description" required></textarea></label>
               <label>Photos<input class="photo-input" data-preview="issuePreview" type="file" name="photos" multiple accept="image/*" capture="environment" /></label>
               <div class="photo-row" id="issuePreview"></div>
-              <button class="btn ghost" type="submit">Report Issue</button>
+              <button class="btn ghost" type="submit" id="issueSubmitBtn">Report Issue</button>
             </form>` : `<div class="mobile-card"><p>No vehicle assigned yet.</p></div>`}
         </div>
       </div>
@@ -687,96 +639,87 @@ function bindView(view) {
     });
   }
   if (view === 'driver') bindDriverWorkspace();
-  if (view !== 'map') stopMapAutoRefresh();
 }
 
 function bindDriverWorkspace() {
   const picker = document.getElementById('driverPicker');
   if (picker) picker.onchange = () => { state.selectedDriverId = Number(picker.value); render(); };
 
-  const enableGpsBtn = document.getElementById('enableGpsBtn');
-  if (enableGpsBtn) enableGpsBtn.onclick = async () => {
-    setGpsState({ gpsStatus: 'requesting', gpsError: '' });
-    await requestDriverTracking(true);
-  };
+  const gpsBtn = document.getElementById('allowGpsBtn');
+  if (gpsBtn) {
+    if (state.user?.role === 'driver') {
+      gpsBtn.onclick = async () => {
+        await requestDriverTracking(true);
+      };
+    } else {
+      gpsBtn.disabled = true;
+      gpsBtn.textContent = 'Driver only';
+    }
+  }
+  if (state.user?.role === 'driver') {
+    if (state.gpsStatus === 'tracking') {
+      setGpsState('tracking', 'Driver location is updating.', { lastUpdate: state.gpsLastUpdate || Date.now(), accuracy: state.gpsAccuracy });
+    } else if (state.gpsStatus === 'blocked') {
+      setGpsState('blocked', 'Location access is blocked. Enable it in browser settings and try again.');
+    } else {
+      setGpsState('idle', 'Tap Allow GPS to start location tracking.');
+    }
+  }
 
   const startShiftForm = document.getElementById('startShiftForm');
-  if (startShiftForm) {
-    enhanceFormForFeedback(startShiftForm);
-    startShiftForm.onsubmit = async e => {
-      e.preventDefault();
-      const button = startShiftForm.querySelector('button[type="submit"]');
-      const unlock = lockForm(startShiftForm, button, 'Starting...');
-      if (!unlock) return;
-      try {
-        const body = Object.fromEntries(new FormData(e.target));
-        await api('/api/shifts/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        await loadEverything();
-        render();
-        setToast('Shift started', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-      finally { unlock(); }
-    };
-  }
+  if (startShiftForm) startShiftForm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('startShiftBtn') || e.submitter;
+    await guardedSubmit('startShift', btn, 'Starting...', async () => {
+      const body = Object.fromEntries(new FormData(e.target));
+      await api('/api/shifts/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await requestDriverTracking(false);
+      await loadEverything();
+      render();
+      setToast('Shift started', 'success');
+    });
+  };
 
   const endShiftForm = document.getElementById('endShiftForm');
-  if (endShiftForm) {
-    enhanceFormForFeedback(endShiftForm);
-    endShiftForm.onsubmit = async e => {
-      e.preventDefault();
-      const button = endShiftForm.querySelector('button[type="submit"]');
-      const unlock = lockForm(endShiftForm, button, 'Ending...');
-      if (!unlock) return;
-      try {
-        const body = Object.fromEntries(new FormData(e.target));
-        await api('/api/shifts/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        await loadEverything();
-        render();
-        setToast('Shift ended', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-      finally { unlock(); }
-    };
-  }
+  if (endShiftForm) endShiftForm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('endShiftBtn') || e.submitter;
+    await guardedSubmit('endShift', btn, 'Ending...', async () => {
+      const body = Object.fromEntries(new FormData(e.target));
+      await api('/api/shifts/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await loadEverything();
+      render();
+      setToast('Shift ended', 'success');
+    });
+  };
 
   bindPhotoPreviews();
   const inspectionForm = document.getElementById('inspectionForm');
-  if (inspectionForm) {
-    enhanceFormForFeedback(inspectionForm);
-    inspectionForm.onsubmit = async e => {
-      e.preventDefault();
-      const button = inspectionForm.querySelector('button[type="submit"]');
-      const unlock = lockForm(inspectionForm, button, 'Submitting...');
-      if (!unlock) return;
-      try {
-        const fd = new FormData(e.target);
-        const items = inspectionItems.map(item => ({ item, result: fd.get(item), notes: fd.get(`note_${item}`) || '' }));
-        fd.append('itemResults', JSON.stringify(items));
-        await api('/api/inspections', { method: 'POST', body: fd });
-        await loadEverything();
-        render();
-        setToast('Inspection submitted', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-      finally { unlock(); }
-    };
-  }
+  if (inspectionForm) inspectionForm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('inspectionSubmitBtn') || e.submitter;
+    await guardedSubmit('inspection', btn, 'Submitting...', async () => {
+      const fd = new FormData(e.target);
+      const items = inspectionItems.map(item => ({ item, result: fd.get(item), notes: fd.get(`note_${item}`) || '' }));
+      fd.append('itemResults', JSON.stringify(items));
+      await api('/api/inspections', { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Inspection submitted', 'success');
+    });
+  };
 
   const quickIssueForm = document.getElementById('quickIssueForm');
-  if (quickIssueForm) {
-    enhanceFormForFeedback(quickIssueForm);
-    quickIssueForm.onsubmit = async e => {
-      e.preventDefault();
-      const button = quickIssueForm.querySelector('button[type="submit"]');
-      const unlock = lockForm(quickIssueForm, button, 'Submitting...');
-      if (!unlock) return;
-      try {
-        const fd = new FormData(e.target);
-        await api('/api/issues', { method: 'POST', body: fd });
-        await loadEverything();
-        render();
-        setToast('Issue reported', 'success');
-      } catch (error) { setToast(error.message, 'error'); }
-      finally { unlock(); }
-    };
+  if (quickIssueForm) quickIssueForm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('issueSubmitBtn') || e.submitter;
+    await guardedSubmit('issue', btn, 'Submitting...', async () => {
+      const fd = new FormData(e.target);
+      await api('/api/issues', { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Issue reported', 'success');
+    });
   };
 }
 
@@ -787,110 +730,72 @@ function stopDriverTracking() {
   state.trackingWatch = null;
   state.trackingTimer = null;
 }
-function stopMapAutoRefresh() {
-  if (state.mapRefreshTimer) clearInterval(state.mapRefreshTimer);
-  state.mapRefreshTimer = null;
-}
-function startMapAutoRefresh() {
-  if (state.activeView !== 'map') return;
-  stopMapAutoRefresh();
-  state.mapRefreshTimer = setInterval(async () => {
-    try {
-      await loadEverything();
-      const container = document.getElementById('viewContainer');
-      if (container && state.activeView === 'map') {
-        container.innerHTML = renderView('map');
-        bindView('map');
-      }
-    } catch {}
-  }, 15000);
-}
-async function pushDriverLocation(lat, lng, accuracy) {
+
+async function pushDriverLocation(lat, lng, accuracy = null) {
   try {
     await api('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lng, accuracy }) });
-    setGpsState({ gpsStatus: 'tracking', gpsError: '', gpsLastCoords: { lat, lng, accuracy }, gpsLastUpdate: new Date().toISOString() });
+    state.gpsLastUpdate = Date.now();
+    state.gpsAccuracy = accuracy;
     if (state.user?.linkedDriverId) {
       await loadEverything();
-      if (state.activeView === 'map' || state.activeView === 'driver') {
-        const container = document.getElementById('viewContainer');
-        if (container) {
-          container.innerHTML = renderView(state.activeView);
-          bindView(state.activeView);
-        }
-      }
+      if (state.activeView === 'map' || state.activeView === 'driver') render();
     }
   } catch (error) {
-    setGpsState({ gpsStatus: 'error', gpsError: error.message || 'Location update failed.' });
+    console.warn('Location update failed', error.message);
+    setGpsState('error', 'Connection issue while sending location.');
   }
 }
+
 async function requestDriverTracking(forcePrompt = false) {
   stopDriverTracking();
   if (state.user?.role !== 'driver') return;
   if (!navigator.geolocation) {
-    setGpsState({ gpsStatus: 'error', gpsError: 'This browser does not support GPS tracking.' });
+    setGpsState('error', 'This browser does not support GPS.');
     return;
   }
-  try {
-    if (navigator.permissions?.query) {
-      const perm = await navigator.permissions.query({ name: 'geolocation' });
-      const updatePermission = () => setGpsState({ gpsPermission: perm.state });
-      updatePermission();
-      perm.onchange = updatePermission;
-      if (perm.state === 'denied') {
-        setGpsState({ gpsStatus: 'blocked', gpsError: 'Location access is blocked in browser settings.' });
-        return;
-      }
-      if (perm.state === 'prompt' && !forcePrompt) {
-        setGpsState({ gpsStatus: 'pending', gpsError: '' });
-        return;
-      }
-    }
-  } catch {}
-  setGpsState({ gpsStatus: 'requesting', gpsError: '' });
-  const onSuccess = position => pushDriverLocation(position.coords.latitude, position.coords.longitude, position.coords.accuracy);
-  const onError = err => {
-    let message = 'Unable to get a stable GPS signal yet.';
-    let status = 'error';
-    if (err && err.code == 1) { status = 'blocked'; message = 'Location access is blocked. Please enable it in your browser settings.'; }
-    else if (err && err.code == 2) { status = 'error'; message = 'Location is unavailable right now. Try moving to a clearer area.'; }
-    else if (err && err.code == 3) { status = 'pending'; message = 'Still waiting for GPS access or signal.'; }
-    setGpsState({ gpsStatus: status, gpsError: message });
+
+  const onSuccess = async position => {
+    await pushDriverLocation(position.coords.latitude, position.coords.longitude, position.coords.accuracy);
+    setGpsState('tracking', 'Driver location is updating.', { lastUpdate: Date.now(), accuracy: position.coords.accuracy });
   };
-  navigator.geolocation.getCurrentPosition(position => {
-    onSuccess(position);
-    state.trackingWatch = navigator.geolocation.watchPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 });
+  const onError = error => {
+    if (error?.code === 1) setGpsState('blocked', 'Location access is blocked. Please enable it in browser settings.');
+    else if (error?.code === 3) setGpsState('pending', 'Still waiting for a GPS signal...');
+    else setGpsState('error', error?.message || 'GPS unavailable.');
+  };
+
+  setGpsState(forcePrompt ? 'requesting' : 'pending', forcePrompt ? 'Requesting GPS permission...' : 'Waiting for GPS permission');
+  navigator.geolocation.getCurrentPosition(async position => {
+    await onSuccess(position);
+    state.trackingWatch = navigator.geolocation.watchPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
     state.trackingTimer = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 });
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
     }, 15000);
-  }, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 });
+  }, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 
 function startDriverTracking() {
   if (state.user?.role !== 'driver') return;
-  requestDriverTracking(false);
+  if (state.gpsStatus === 'tracking') return;
+  if (state.user?.linkedDriverId && !state.trackingWatch) {
+    requestDriverTracking(false);
+  }
 }
+
 
 function submitJsonForm(url) {
   return async e => {
     e.preventDefault();
-    const form = e.target;
-    const button = form.querySelector('button[type="submit"]');
-    enhanceFormForFeedback(form);
-    const unlock = lockForm(form, button, 'Saving...');
-    if (!unlock) return;
-    try {
-      const body = Object.fromEntries(new FormData(form));
+    const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+    await guardedSubmit(url, btn, 'Saving...', async () => {
+      const body = Object.fromEntries(new FormData(e.target));
       if (!body.createLogin) delete body.userPassword;
       await api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      form.reset();
+      e.target.reset();
       await loadEverything();
       render();
       setToast('Saved successfully', 'success');
-    } catch (error) {
-      setToast(error.message, 'error');
-    } finally {
-      unlock();
-    }
+    });
   };
 }
 
@@ -933,8 +838,7 @@ async function loadEverything() {
   state.shifts = shifts;
   state.inspections = inspections;
   state.issues = issues;
-  if (state.user?.linkedDriverId) state.selectedDriverId = state.user.linkedDriverId;
-  else if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
+  if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }
 
 function bindPhotoPreviews() {
