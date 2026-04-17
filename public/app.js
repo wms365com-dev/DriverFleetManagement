@@ -20,7 +20,9 @@ const state = {
   gpsMessage: 'Tap Allow GPS to start location tracking.',
   gpsLastUpdate: null,
   gpsAccuracy: null,
-  submitLocks: {}
+  submitLocks: {},
+  locationBuffer: [],
+  lastServerSyncAt: null
 };
 
 const inspectionItems = [
@@ -34,6 +36,46 @@ function setToast(message, type = '') {
   toast.textContent = message;
   clearTimeout(state.toastTimer);
   state.toastTimer = setTimeout(() => toast.className = 'toast', 2600);
+}
+
+function locationBufferKey() { return `driver_location_buffer_${state.user?.linkedDriverId || 'anon'}`; }
+function loadLocationBuffer() {
+  try { state.locationBuffer = JSON.parse(localStorage.getItem(locationBufferKey()) || '[]'); }
+  catch { state.locationBuffer = []; }
+}
+function saveLocationBuffer() {
+  try { localStorage.setItem(locationBufferKey(), JSON.stringify(state.locationBuffer.slice(-500))); } catch {}
+}
+function getLastServerSyncAt() {
+  try { return Number(localStorage.getItem(`${locationBufferKey()}_last_sync`) || 0) || 0; } catch { return 0; }
+}
+function setLastServerSyncAt(ts) {
+  state.lastServerSyncAt = ts;
+  try { localStorage.setItem(`${locationBufferKey()}_last_sync`, String(ts)); } catch {}
+}
+function bufferLocationPoint(lat, lng, accuracy) {
+  const point = { lat:Number(lat), lng:Number(lng), accuracy: accuracy == null ? null : Number(accuracy), timestamp:new Date().toISOString() };
+  state.locationBuffer.push(point);
+  if (state.locationBuffer.length > 500) state.locationBuffer = state.locationBuffer.slice(-500);
+  saveLocationBuffer();
+  return point;
+}
+async function flushBufferedLocations(force = false) {
+  if (!state.locationBuffer.length) return;
+  const now = Date.now();
+  const lastSync = getLastServerSyncAt();
+  if (!force && now - lastSync < 60000) return;
+  const latest = state.locationBuffer[state.locationBuffer.length - 1];
+  try {
+    await api('/api/location', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ lat: latest.lat, lng: latest.lng, accuracy: latest.accuracy, history: force ? state.locationBuffer : undefined }) });
+    setLastServerSyncAt(now);
+    if (force) {
+      state.locationBuffer = [];
+      saveLocationBuffer();
+    }
+  } catch (error) {
+    console.warn('Buffered location sync failed', error.message);
+  }
 }
 
 function appendCompanyId(url) {
@@ -80,7 +122,7 @@ function setGpsState(status, message = '', extra = {}) {
   const btn = document.getElementById('allowGpsBtn');
   if (title) title.textContent = ({idle:'Not tracking',pending:'Waiting for GPS permission',requesting:'Requesting GPS permission...',tracking:'Tracking active',blocked:'Location access blocked',error:'GPS unavailable'})[status] || 'GPS status';
   if (msg) msg.textContent = state.gpsMessage || '';
-  if (meta) meta.textContent = status === 'tracking' ? `Last update ${new Date(state.gpsLastUpdate || Date.now()).toLocaleTimeString()}${state.gpsAccuracy ? ` · ±${Math.round(state.gpsAccuracy)}m` : ''}` : '';
+  if (meta) meta.textContent = status === 'tracking' ? `Last update ${new Date(state.gpsLastUpdate || Date.now()).toLocaleTimeString()}${state.gpsAccuracy ? ` · ±${Math.round(state.gpsAccuracy)}m` : ''}${state.lastServerSyncAt ? ` · synced ${new Date(state.lastServerSyncAt).toLocaleTimeString()}` : ''}` : '';
   if (btn) {
     if (status === 'tracking') {
       btn.textContent = 'GPS Enabled';
@@ -414,7 +456,7 @@ function renderMapView() {
     const rawTop = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
     const left = Math.max(8, Math.min(92, rawLeft));
     const top = Math.max(8, Math.min(92, rawTop));
-    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${driver.firstName} ${driver.lastName}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span></button>`;
+    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${driver.firstName} ${driver.lastName}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span><small>${driver.firstName}</small></button>`;
   }).join('');
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   return `
@@ -434,7 +476,7 @@ function renderMapView() {
               <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
                 <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(driver.status)}</div>
                 <div class="tiny">${driver.email || driver.phone || 'No contact set'}</div>
-                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div>
+                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div><div class="tiny">${Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No coordinates yet'}</div>
               </button>`).join('')}
           </div>
         </div>
@@ -775,33 +817,40 @@ function startMapRefresh() {
   }, 15000);
 }
 
-async function pushDriverLocation(lat, lng, accuracy = null) {
-  try {
-    await api('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lng, accuracy }) });
-    state.gpsLastUpdate = Date.now();
-    state.gpsAccuracy = accuracy;
-    if (state.user?.linkedDriverId) {
+
+async function pushDriverLocation(lat, lng, accuracy = null, options = {}) {
+  const point = bufferLocationPoint(lat, lng, accuracy);
+  state.gpsLastUpdate = Date.now();
+  state.gpsAccuracy = accuracy;
+  const force = !!options.force;
+  await flushBufferedLocations(force);
+  if (state.user?.linkedDriverId) {
+    try {
       await loadEverything();
       if (state.activeView === 'map' || state.activeView === 'driver') render();
+    } catch (error) {
+      console.warn('Refresh after location update failed', error.message);
     }
-  } catch (error) {
-    console.warn('Location update failed', error.message);
-    setGpsState('error', 'Connection issue while sending location.');
   }
+  return point;
 }
+
+
 
 async function requestDriverTracking(forcePrompt = false) {
   if (state.user?.role !== 'driver') return;
   if (state.gpsStatus === 'tracking' && state.trackingWatch && !forcePrompt) return;
   stopDriverTracking();
+  loadLocationBuffer();
+  state.lastServerSyncAt = getLastServerSyncAt();
   if (!navigator.geolocation) {
     setGpsState('error', 'This browser does not support GPS.');
     return;
   }
 
   const onSuccess = async position => {
-    await pushDriverLocation(position.coords.latitude, position.coords.longitude, position.coords.accuracy);
-    setGpsState('tracking', 'Driver location is updating.', { lastUpdate: Date.now(), accuracy: position.coords.accuracy });
+    await pushDriverLocation(position.coords.latitude, position.coords.longitude, position.coords.accuracy, { force: true });
+    setGpsState('tracking', 'Driver location is updating once per minute and stored locally between syncs.', { lastUpdate: Date.now(), accuracy: position.coords.accuracy });
   };
   const onError = error => {
     if (error?.code === 1) setGpsState('blocked', 'Location access is blocked. Please enable it in browser settings.');
@@ -812,11 +861,14 @@ async function requestDriverTracking(forcePrompt = false) {
   setGpsState(forcePrompt ? 'requesting' : 'pending', forcePrompt ? 'Requesting GPS permission...' : 'Waiting for GPS permission');
   navigator.geolocation.getCurrentPosition(async position => {
     await onSuccess(position);
-    state.trackingWatch = navigator.geolocation.watchPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
+    state.trackingWatch = navigator.geolocation.watchPosition(async pos => {
+      bufferLocationPoint(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+      setGpsState('tracking', 'Driver location is updating once per minute and stored locally between syncs.', { lastUpdate: Date.now(), accuracy: pos.coords.accuracy });
+    }, onError, { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 });
     state.trackingTimer = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 60000, timeout: 15000 });
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 60000, timeout: 20000 });
     }, 60000);
-  }, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  }, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
 }
 
 function startDriverTracking() {
@@ -901,6 +953,8 @@ function bindPhotoPreviews() {
     };
   });
 }
+
+window.addEventListener('beforeunload', () => { if (state.user?.role === 'driver') flushBufferedLocations(true); });
 
 (async function init() {
   try {
