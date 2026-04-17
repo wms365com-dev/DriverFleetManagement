@@ -410,15 +410,17 @@ function renderMapView() {
   const latRange = Math.max(0.02, bounds.maxLat - bounds.minLat);
   const lngRange = Math.max(0.02, bounds.maxLng - bounds.minLng);
   const markers = tracked.map(driver => {
-    const left = ((Number(driver.lastLng) - bounds.minLng) / lngRange) * 100;
-    const top = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
-    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span></button>`;
+    const rawLeft = ((Number(driver.lastLng) - bounds.minLng) / lngRange) * 100;
+    const rawTop = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
+    const left = Math.max(8, Math.min(92, rawLeft));
+    const top = Math.max(8, Math.min(92, rawTop));
+    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${driver.firstName} ${driver.lastName}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span></button>`;
   }).join('');
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   return `
     <section class="map-layout">
       <div class="panel glass map-panel">
-        <div class="panel-head"><h3>Live Driver Tracking</h3><p>Browser GPS updates when drivers allow location access on mobile</p></div>
+        <div class="panel-head"><h3>Live Driver Tracking</h3><p>Driver locations update once per minute after GPS permission is granted on mobile.</p></div>
         <div class="map-canvas">
           <div class="map-grid"></div>
           ${markers || '<div class="map-empty">No live driver locations yet. Drivers will appear here after signing in and allowing location tracking.</div>'}
@@ -432,7 +434,7 @@ function renderMapView() {
               <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
                 <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(driver.status)}</div>
                 <div class="tiny">${driver.email || driver.phone || 'No contact set'}</div>
-                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : 'Awaiting first location update'}</div>
+                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div>
               </button>`).join('')}
           </div>
         </div>
@@ -812,8 +814,8 @@ async function requestDriverTracking(forcePrompt = false) {
     await onSuccess(position);
     state.trackingWatch = navigator.geolocation.watchPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
     state.trackingTimer = setInterval(() => {
-      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
-    }, 15000);
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, maximumAge: 60000, timeout: 15000 });
+    }, 60000);
   }, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 

@@ -152,7 +152,7 @@ th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: l
 .map-grid { position:absolute; inset:0; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 52px 52px; opacity:.55; }
 .map-empty { position:absolute; inset:0; display:grid; place-items:center; padding:30px; text-align:center; color:var(--muted); }
 .map-empty.small { min-height: 180px; position:static; }
-.map-marker { position:absolute; transform: translate(-50%, -50%); width:52px; height:52px; border-radius:999px; border:1px solid rgba(255,255,255,.25); background: linear-gradient(135deg, var(--primary), var(--green)); color:#07131f; font-weight:800; box-shadow:0 10px 24px rgba(0,0,0,.35); cursor:pointer; }
+.map-marker { position:absolute; transform: translate(-50%, -50%); width:56px; height:56px; border-radius:999px; border:2px solid rgba(255,255,255,.65); background: linear-gradient(135deg, var(--primary), var(--green)); color:#07131f; font-weight:800; box-shadow:0 10px 24px rgba(0,0,0,.35); cursor:pointer; z-index:3; }
 .map-marker span { pointer-events:none; }
 .map-marker.active { outline: 4px solid rgba(110,196,255,.25); }
 .compact-list { max-height: 340px; overflow:auto; }
@@ -183,3 +183,5 @@ th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: l
 .gps-status-card[data-status='tracking'] { border-color: rgba(30,200,141,.45); box-shadow: inset 0 0 0 1px rgba(30,200,141,.12); }
 .gps-status-card[data-status='blocked'], .gps-status-card[data-status='error'] { border-color: rgba(255,102,122,.45); box-shadow: inset 0 0 0 1px rgba(255,102,122,.12); }
 #gpsStatusMeta { min-height: 18px; }
+
+.map-marker::after { content:""; position:absolute; inset:-6px; border-radius:999px; border:2px solid rgba(110,196,255,.22); }
