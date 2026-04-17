@@ -15,6 +15,7 @@ const state = {
   toastTimer: null,
   trackingWatch: null,
   trackingTimer: null,
+  mapRefreshTimer: null,
   gpsStatus: 'idle',
   gpsMessage: 'Tap Allow GPS to start location tracking.',
   gpsLastUpdate: null,
@@ -72,14 +73,33 @@ function setGpsState(status, message = '', extra = {}) {
   if (Object.prototype.hasOwnProperty.call(extra, 'lastUpdate')) state.gpsLastUpdate = extra.lastUpdate;
   if (Object.prototype.hasOwnProperty.call(extra, 'accuracy')) state.gpsAccuracy = extra.accuracy;
   const el = document.getElementById('gpsStatusCard');
-  if (!el) return;
-  el.dataset.status = status;
+  if (el) el.dataset.status = status;
   const title = document.getElementById('gpsStatusTitle');
   const msg = document.getElementById('gpsStatusMessage');
   const meta = document.getElementById('gpsStatusMeta');
+  const btn = document.getElementById('allowGpsBtn');
   if (title) title.textContent = ({idle:'Not tracking',pending:'Waiting for GPS permission',requesting:'Requesting GPS permission...',tracking:'Tracking active',blocked:'Location access blocked',error:'GPS unavailable'})[status] || 'GPS status';
   if (msg) msg.textContent = state.gpsMessage || '';
   if (meta) meta.textContent = status === 'tracking' ? `Last update ${new Date(state.gpsLastUpdate || Date.now()).toLocaleTimeString()}${state.gpsAccuracy ? ` · ±${Math.round(state.gpsAccuracy)}m` : ''}` : '';
+  if (btn) {
+    if (status === 'tracking') {
+      btn.textContent = 'GPS Enabled';
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+    } else if (status === 'requesting' || status === 'pending') {
+      btn.textContent = 'Connecting...';
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+    } else if (status === 'blocked') {
+      btn.textContent = 'Enable GPS';
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+    } else {
+      btn.textContent = 'Allow GPS';
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+    }
+  }
 }
 
 function lockButton(btn, text='Saving...') {
@@ -617,10 +637,13 @@ function bindView(view) {
     if (form) form.onsubmit = submitJsonForm('/api/assignments');
   }
   if (view === 'map') {
+    startMapRefresh();
     document.querySelectorAll('[data-driver-focus],[data-driver-marker]').forEach(btn => btn.onclick = () => {
       state.selectedDriverId = Number(btn.dataset.driverFocus || btn.dataset.driverMarker);
       render();
     });
+  } else {
+    stopMapRefresh();
   }
   if (view === 'issues') {
     document.querySelectorAll('.close-issue').forEach(btn => btn.onclick = async () => {
@@ -662,7 +685,8 @@ function bindDriverWorkspace() {
     } else if (state.gpsStatus === 'blocked') {
       setGpsState('blocked', 'Location access is blocked. Enable it in browser settings and try again.');
     } else {
-      setGpsState('idle', 'Tap Allow GPS to start location tracking.');
+      setGpsState('idle', 'GPS will start automatically once permission is available.');
+      requestDriverTracking(false);
     }
   }
 
@@ -731,6 +755,24 @@ function stopDriverTracking() {
   state.trackingTimer = null;
 }
 
+function stopMapRefresh() {
+  if (state.mapRefreshTimer) clearInterval(state.mapRefreshTimer);
+  state.mapRefreshTimer = null;
+}
+
+function startMapRefresh() {
+  stopMapRefresh();
+  if (state.activeView !== 'map' || !isStaffLike()) return;
+  state.mapRefreshTimer = setInterval(async () => {
+    try {
+      await loadEverything();
+      if (state.activeView === 'map') render();
+    } catch (error) {
+      console.warn('Map refresh failed', error.message);
+    }
+  }, 15000);
+}
+
 async function pushDriverLocation(lat, lng, accuracy = null) {
   try {
     await api('/api/location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lng, accuracy }) });
@@ -747,8 +789,9 @@ async function pushDriverLocation(lat, lng, accuracy = null) {
 }
 
 async function requestDriverTracking(forcePrompt = false) {
-  stopDriverTracking();
   if (state.user?.role !== 'driver') return;
+  if (state.gpsStatus === 'tracking' && state.trackingWatch && !forcePrompt) return;
+  stopDriverTracking();
   if (!navigator.geolocation) {
     setGpsState('error', 'This browser does not support GPS.');
     return;
