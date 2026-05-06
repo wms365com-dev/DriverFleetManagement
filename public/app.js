@@ -10,6 +10,7 @@ const state = {
   inspections: [],
   issues: [],
   loads: [],
+  addresses: [],
   bugReports: [],
   selectedCompanyId: null,
   selectedDriverId: null,
@@ -172,6 +173,16 @@ function powerUnits() {
 }
 function trailers() {
   return state.vehicles.filter(v => (v.category || 'power_unit') !== 'power_unit');
+}
+function addressSuggestions(type = 'both') {
+  return state.addresses.filter(item => ['both', type].includes(item.type || 'both'));
+}
+function renderAddressDatalist(id, type) {
+  return `<datalist id="${attr(id)}">${addressSuggestions(type).map(item => `<option value="${attr(item.address)}" label="${attr([item.name, item.type].filter(Boolean).join(' - '))}"></option>`).join('')}</datalist>`;
+}
+function findAddressByValue(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return state.addresses.find(item => String(item.address || '').trim().toLowerCase() === normalized) || null;
 }
 function getCurrentCompany() { return byId(state.companies, state.selectedCompanyId) || null; }
 function isSuper() { return state.user?.role === 'super_user'; }
@@ -827,11 +838,11 @@ function renderLoads() {
         <form id="loadForm" class="stack compact">
           <div class="split"><label>Load #<input name="loadNumber" required /></label><label>Reference<input name="referenceNumber" /></label></div>
           <div class="split"><label>Customer<input name="customer" /></label><label>Broker<input name="broker" /></label></div>
-          <label>Pickup name<input name="pickupName" /></label>
-          <label>Pickup address<input name="pickupAddress" /></label>
+          <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
+          <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" /></label>
           <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
-          <label>Delivery name<input name="deliveryName" /></label>
-          <label>Delivery address<input name="deliveryAddress" /></label>
+          <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
+          <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" /></label>
           <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
@@ -840,7 +851,18 @@ function renderLoads() {
           <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
           <label>Notes<textarea name="notes"></textarea></label>
           <button class="btn primary" type="submit">Create Load</button>
+          ${renderAddressDatalist('pickupAddresses', 'pickup')}
+          ${renderAddressDatalist('deliveryAddresses', 'delivery')}
         </form>
+        <hr class="soft-rule" />
+        <div class="panel-head"><h3>Preload Address</h3><p>Save frequent pickup and delivery locations for type-to-select.</p></div>
+        <form id="addressForm" class="stack compact">
+          <div class="split"><label>Location name<input name="name" placeholder="Customer, shipper, receiver" /></label><label>Type<select name="type"><option value="both">Pickup & delivery</option><option value="pickup">Pickup only</option><option value="delivery">Delivery only</option></select></label></div>
+          <label>Address<input name="address" required autocomplete="street-address" /></label>
+          <label>Notes<textarea name="notes"></textarea></label>
+          <button class="btn ghost" type="submit">Save Address</button>
+        </form>
+        <div class="address-chip-row">${state.addresses.slice(0, 10).map(item => `<span class="address-chip">${esc(item.name || item.address)}<small>${esc(item.type || 'both')}</small></span>`).join('') || '<p class="tiny">No saved addresses yet.</p>'}</div>
       </section>
     </div>`;
 }
@@ -1040,6 +1062,9 @@ function bindView(view) {
   if (view === 'loads') {
     const form = document.getElementById('loadForm');
     if (form) form.onsubmit = submitJsonForm('/api/loads');
+    const addressForm = document.getElementById('addressForm');
+    if (addressForm) addressForm.onsubmit = submitJsonForm('/api/addresses');
+    bindAddressInputs();
   }
   if (view === 'map') {
     startMapRefresh();
@@ -1319,6 +1344,17 @@ function submitJsonForm(url) {
   };
 }
 
+function bindAddressInputs() {
+  document.querySelectorAll('[data-address-input]').forEach(input => {
+    input.onchange = () => {
+      const match = findAddressByValue(input.value);
+      if (!match?.name) return;
+      const nameInput = input.form?.elements[input.dataset.addressInput];
+      if (nameInput && !nameInput.value) nameInput.value = match.name;
+    };
+  });
+}
+
 async function loadEverything() {
   if (!state.user) return;
 
@@ -1336,6 +1372,7 @@ async function loadEverything() {
     state.inspections = [];
     state.issues = [];
     state.loads = [];
+    state.addresses = [];
     state.bugReports = [];
     return;
   }
@@ -1350,10 +1387,11 @@ async function loadEverything() {
     api('/api/inspections'),
     api('/api/issues'),
     api('/api/loads'),
+    isStaffLike() ? api('/api/addresses') : Promise.resolve([]),
     isStaffLike() ? api('/api/bug-reports') : Promise.resolve([])
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, bugReports] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -1363,6 +1401,7 @@ async function loadEverything() {
   state.inspections = inspections;
   state.issues = issues;
   state.loads = loads;
+  state.addresses = addresses;
   state.bugReports = bugReports;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }

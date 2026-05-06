@@ -144,6 +144,15 @@ function loadPayload(body) {
     trailerId: Number(body.trailerId) || null
   };
 }
+function addressPayload(body) {
+  const type = String(body.type || 'both');
+  return {
+    name: String(body.name || '').trim(),
+    address: String(body.address || '').trim(),
+    type: ['pickup', 'delivery', 'both'].includes(type) ? type : 'both',
+    notes: String(body.notes || '').trim()
+  };
+}
 function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
 }
@@ -403,6 +412,21 @@ app.get('/api/issues', auth, requireCompanyScope, requireDriverProfile, async (r
   if (isDriver(req)) return res.json(issues.filter(i => Number(i.driverId) === Number(req.sessionUser.linkedDriverId)));
   res.json(issues);
 });
+
+app.get('/api/addresses', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  res.json(await db.getAddresses(req.companyId));
+});
+app.post('/api/addresses', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const payload = addressPayload(req.body);
+    if (!payload.address) return res.status(400).json({ error: 'Address is required' });
+    const address = await db.upsertAddress(req.companyId, payload);
+    res.json(address);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to save address' });
+  }
+});
+
 app.post('/api/issues', auth, requireCompanyScope, requireDriverProfile, upload.array('photos', 8), async (req, res) => {
   try {
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
