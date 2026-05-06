@@ -168,6 +168,25 @@ function loadStatusTag(load) {
 function activeLoads() {
   return state.loads.filter(load => !['delivered', 'cancelled'].includes(load.status));
 }
+function driverActiveLoad(driverId) {
+  return activeLoads().find(load => Number(load.driverId) === Number(driverId)) || null;
+}
+function trackingAge(driver) {
+  return driver?.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+}
+function trackingState(driver) {
+  const age = trackingAge(driver);
+  if (!Number.isFinite(age)) return 'offline';
+  if (age <= 5 * 60 * 1000) return 'live';
+  if (age <= 20 * 60 * 1000) return 'stale';
+  return 'offline';
+}
+function trackingLabel(driver) {
+  const stateName = trackingState(driver);
+  if (stateName === 'live') return 'live';
+  if (stateName === 'stale') return 'stale';
+  return driver?.lastSeenAt ? 'offline' : 'not tracking';
+}
 function powerUnits() {
   return state.vehicles.filter(v => (v.category || 'power_unit') === 'power_unit');
 }
@@ -686,6 +705,7 @@ function renderDashboard() {
 
 function renderMapView() {
   const tracked = state.drivers.filter(d => Number.isFinite(Number(d.lastLat)) && Number.isFinite(Number(d.lastLng)));
+  const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   const bounds = tracked.length ? {
     minLat: Math.min(...tracked.map(d => Number(d.lastLat))),
     maxLat: Math.max(...tracked.map(d => Number(d.lastLat))),
@@ -699,15 +719,24 @@ function renderMapView() {
     const rawTop = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
     const left = Math.max(8, Math.min(92, rawLeft));
     const top = Math.max(8, Math.min(92, rawTop));
-    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${attr(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}" data-driver-marker="${attr(driver.id)}" style="left:${left}%;top:${top}%"><span>${esc(driver.firstName?.[0] || 'D')}${esc(driver.lastName?.[0] || '')}</span><small>${esc(driver.firstName || '')}</small></button>`;
+    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''} ${attr(trackingState(driver))}" title="${attr(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}" data-driver-marker="${attr(driver.id)}" style="left:${left}%;top:${top}%"><span>${esc(driver.firstName?.[0] || 'D')}${esc(driver.lastName?.[0] || '')}</span><small>${esc(driver.firstName || '')}</small></button>`;
   }).join('');
-  const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
+  const trail = selected?.locationHistory?.slice(-20).map((point, index, points) => {
+    const rawLeft = ((Number(point.lng) - bounds.minLng) / lngRange) * 100;
+    const rawTop = (1 - ((Number(point.lat) - bounds.minLat) / latRange)) * 100;
+    const left = Math.max(8, Math.min(92, rawLeft));
+    const top = Math.max(8, Math.min(92, rawTop));
+    const opacity = Math.max(.25, (index + 1) / points.length);
+    return `<span class="map-trail-dot" style="left:${left}%;top:${top}%;opacity:${opacity}"></span>`;
+  }).join('') || '';
+  const selectedLoad = selected ? driverActiveLoad(selected.id) : null;
   return `
     <section class="map-layout">
       <div class="panel glass map-panel">
         <div class="panel-head"><h3>Live Driver Tracking</h3><p>Driver locations update once per minute after GPS permission is granted on mobile.</p></div>
         <div class="map-canvas">
           <div class="map-grid"></div>
+          ${trail}
           ${markers || '<div class="map-empty">No live driver locations yet. Drivers will appear here after signing in and allowing location tracking.</div>'}
         </div>
       </div>
@@ -717,7 +746,7 @@ function renderMapView() {
           <div class="list-grid compact-list">
             ${state.drivers.map(driver => `
               <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
-                <div class="card-row"><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong>${statusTag(driver.status)}</div>
+                <div class="card-row"><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong>${statusTag(trackingLabel(driver))}</div>
                 <div class="tiny">${esc(driver.email || driver.phone || 'No contact set')}</div>
                 <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div><div class="tiny">${Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No coordinates yet'}</div>
               </button>`).join('')}
@@ -727,11 +756,13 @@ function renderMapView() {
           <div class="panel-head"><h3>Selected Driver</h3><p>Location and assigned vehicle</p></div>
           ${selected ? `
             <div class="driver-location-card">
-              <div class="card-row"><strong>${esc(`${selected.firstName || ''} ${selected.lastName || ''}`.trim())}</strong>${statusTag(selected.trackingEnabled ? 'tracked' : 'ready')}</div>
+              <div class="card-row"><strong>${esc(`${selected.firstName || ''} ${selected.lastName || ''}`.trim())}</strong>${statusTag(trackingLabel(selected))}</div>
               <div class="tiny">Coordinates</div>
               <div class="coords">${Number(selected.lastLat).toFixed(5)}, ${Number(selected.lastLng).toFixed(5)}</div>
               <div class="tiny">${selected.lastSeenAt ? `Last update ${fmt(selected.lastSeenAt)}` : 'No update yet'}</div>
               <div class="tiny">Assigned vehicle: ${vehicleName((state.assignments.find(a => Number(a.driverId) === Number(selected.id) && a.active) || {}).vehicleId)}</div>
+              <div class="tiny">Active load: ${selectedLoad ? `${esc(selectedLoad.loadNumber)} · ${esc(selectedLoad.status || 'assigned')}` : 'None assigned'}</div>
+              <div class="tiny">Trail points: ${(selected.locationHistory || []).length}</div>
             </div>` : '<div class="map-empty small">Select a driver to inspect location details.</div>'}
         </div>
       </div>
@@ -959,7 +990,7 @@ function renderDriverWorkspace() {
           </div>
           <div class="mobile-actions">
             <div class="quick-action-grid">
-              <div class="mobile-mini-card gps-status-card" id="gpsStatusCard" data-status="${driver.lastSeenAt ? 'tracking' : 'idle'}"><span>GPS Status</span><strong id="gpsStatusTitle">${driver.lastSeenAt ? 'Tracking active' : 'Not tracking'}</strong><small id="gpsStatusMessage">${driver.lastSeenAt ? 'Driver location is updating.' : 'Tap Allow GPS to start location tracking.'}</small><small id="gpsStatusMeta">${driver.lastSeenAt ? fmt(driver.lastSeenAt) : ''}</small><button class="btn primary small-btn" type="button" id="allowGpsBtn">Allow GPS</button></div>
+              <div class="mobile-mini-card gps-status-card" id="gpsStatusCard" data-status="${driver.lastSeenAt ? 'tracking' : 'idle'}"><span>GPS Status</span><strong id="gpsStatusTitle">${driver.lastSeenAt ? 'Tracking active' : 'Not tracking'}</strong><small id="gpsStatusMessage">${driver.lastSeenAt ? 'Driver location is updating.' : 'Tap Allow GPS to start location tracking.'}</small><small id="gpsStatusMeta">${driver.lastSeenAt ? fmt(driver.lastSeenAt) : ''}</small><div class="mini-actions"><button class="btn primary small-btn" type="button" id="allowGpsBtn">Allow GPS</button><button class="btn ghost small-btn" type="button" id="syncGpsBtn">Sync Now</button></div></div>
               <div class="mobile-mini-card"><span>Open issues</span><strong>${state.issues.filter(i => Number(i.driverId) === Number(driver.id) && i.status !== 'closed').length}</strong><small>Need attention</small></div>
             </div>
             ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : ''}
@@ -1168,6 +1199,16 @@ function bindDriverWorkspace() {
     } else {
       gpsBtn.disabled = true;
       gpsBtn.textContent = 'Driver only';
+    }
+  }
+  const syncGpsBtn = document.getElementById('syncGpsBtn');
+  if (syncGpsBtn) {
+    if (state.user?.role === 'driver') {
+      syncGpsBtn.onclick = async () => {
+        await requestDriverTracking(true);
+      };
+    } else {
+      syncGpsBtn.disabled = true;
     }
   }
   if (state.user?.role === 'driver') {

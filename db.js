@@ -76,6 +76,7 @@ function normalizeFileDb() {
     if (!Object.prototype.hasOwnProperty.call(driver, 'lastLng')) { driver.lastLng = null; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(driver, 'lastSeenAt')) { driver.lastSeenAt = null; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(driver, 'trackingEnabled')) { driver.trackingEnabled = false; changed = true; }
+    if (!Array.isArray(driver.locationHistory)) { driver.locationHistory = []; changed = true; }
   }
   for (const vehicle of db.vehicles) {
     if (!vehicle.companyId) { vehicle.companyId = seedCompany.id; changed = true; }
@@ -150,7 +151,8 @@ function mapDriver(r) {
     lastLat: r.last_lat ?? r.lastLat ?? null,
     lastLng: r.last_lng ?? r.lastLng ?? null,
     lastSeenAt: r.last_seen_at || r.lastSeenAt || null,
-    trackingEnabled: r.tracking_enabled ?? r.trackingEnabled ?? false
+    trackingEnabled: r.tracking_enabled ?? r.trackingEnabled ?? false,
+    locationHistory: r.location_history || r.locationHistory || []
   };
 }
 function mapVehicle(r) {
@@ -322,7 +324,8 @@ async function initPostgres() {
     last_lat DOUBLE PRECISION,
     last_lng DOUBLE PRECISION,
     last_seen_at TIMESTAMPTZ,
-    tracking_enabled BOOLEAN NOT NULL DEFAULT false
+    tracking_enabled BOOLEAN NOT NULL DEFAULT false,
+    location_history JSONB NOT NULL DEFAULT '[]'::jsonb
   );
   CREATE TABLE IF NOT EXISTS vehicles (
     id SERIAL PRIMARY KEY,
@@ -451,6 +454,7 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS location_history JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'power_unit'`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS length TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS max_weight INTEGER`);
@@ -503,8 +507,22 @@ const commonMethods = {
       trackedDrivers: drivers.filter(d => d.lastLat && d.lastLng).length
     };
   },
-  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) {
-    throw new Error('Not implemented');
+  normalizeLocationHistory(history = [], latest = null) {
+    const points = Array.isArray(history) ? history : [];
+    const normalized = points.map(point => ({
+      lat: Number(point.lat),
+      lng: Number(point.lng),
+      accuracy: point.accuracy == null ? null : Number(point.accuracy),
+      timestamp: point.timestamp || new Date().toISOString()
+    })).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+    if (latest && Number.isFinite(latest.lat) && Number.isFinite(latest.lng)) normalized.push(latest);
+    const deduped = [];
+    for (const point of normalized) {
+      const previous = deduped[deduped.length - 1];
+      if (previous && previous.lat === point.lat && previous.lng === point.lng && previous.timestamp === point.timestamp) continue;
+      deduped.push(point);
+    }
+    return deduped.slice(-100);
   },
   buildLoadEvent(status, note = '', user = null) {
     return {
@@ -658,7 +676,7 @@ const fileDb = {
     if (vehicle) { vehicle.status = status; writeFileDb(db); }
     return vehicle;
   },
-  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) {
+  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true, history = []) {
     const db = readFileDb();
     const driver = db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(driverId));
     if (!driver) throw new Error('Driver not found.');
@@ -666,6 +684,12 @@ const fileDb = {
     driver.lastLng = Number(lng);
     driver.lastSeenAt = new Date().toISOString();
     driver.trackingEnabled = !!trackingEnabled;
+    driver.locationHistory = commonMethods.normalizeLocationHistory([...(driver.locationHistory || []), ...history], {
+      lat: driver.lastLat,
+      lng: driver.lastLng,
+      accuracy: history?.[history.length - 1]?.accuracy ?? null,
+      timestamp: driver.lastSeenAt
+    });
     writeFileDb(db);
     return driver;
   },
@@ -859,7 +883,19 @@ const pgDb = {
     return mapIssue(r.rows[0]);
   },
   async updateIssue(companyId, id, status, resolutionNotes) { const r = await pool.query(`UPDATE issues SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE company_id=$1 AND id=$2 RETURNING *`, [companyId, id, status, resolutionNotes || null]); if (!r.rows[0]) throw new Error('Issue not found.'); return mapIssue(r.rows[0]); },
-  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) { const r = await pool.query('UPDATE drivers SET last_lat=$3,last_lng=$4,last_seen_at=NOW(),tracking_enabled=$5 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, driverId, Number(lat), Number(lng), !!trackingEnabled]); if (!r.rows[0]) throw new Error('Driver not found.'); return mapDriver(r.rows[0]); },
+  async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true, history = []) {
+    const existing = await pool.query('SELECT location_history FROM drivers WHERE company_id=$1 AND id=$2', [companyId, driverId]);
+    if (!existing.rows[0]) throw new Error('Driver not found.');
+    const now = new Date().toISOString();
+    const locationHistory = commonMethods.normalizeLocationHistory([...(existing.rows[0].location_history || []), ...history], {
+      lat: Number(lat),
+      lng: Number(lng),
+      accuracy: history?.[history.length - 1]?.accuracy ?? null,
+      timestamp: now
+    });
+    const r = await pool.query('UPDATE drivers SET last_lat=$3,last_lng=$4,last_seen_at=NOW(),tracking_enabled=$5,location_history=$6::jsonb WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, driverId, Number(lat), Number(lng), !!trackingEnabled, JSON.stringify(locationHistory)]);
+    return mapDriver(r.rows[0]);
+  },
   async updateVehicleStatus(companyId, vehicleId, status) { const r = await pool.query('UPDATE vehicles SET status=$3 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, vehicleId, status]); return r.rows[0] ? mapVehicle(r.rows[0]) : null; },
   async getAddresses(companyId) {
     const saved = await pool.query('SELECT * FROM addresses WHERE company_id=$1 ORDER BY COALESCE(last_used_at, created_at) DESC, name', [companyId]);

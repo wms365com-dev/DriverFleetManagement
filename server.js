@@ -153,6 +153,15 @@ function addressPayload(body) {
     notes: String(body.notes || '').trim()
   };
 }
+function locationHistoryPayload(body) {
+  const raw = Array.isArray(body.history) ? body.history : [];
+  return raw.slice(-100).map(point => ({
+    lat: Number(point.lat),
+    lng: Number(point.lng),
+    accuracy: point.accuracy == null ? null : Number(point.accuracy),
+    timestamp: point.timestamp || new Date().toISOString()
+  })).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+}
 function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
 }
@@ -346,7 +355,7 @@ app.post('/api/location', auth, requireCompanyScope, requireDriverProfile, async
     const lat = Number(req.body.lat);
     const lng = Number(req.body.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'Valid latitude and longitude are required' });
-    const driver = await db.updateDriverLocation(req.companyId, driverId, lat, lng, true);
+    const driver = await db.updateDriverLocation(req.companyId, driverId, lat, lng, true, locationHistoryPayload(req.body));
     res.json(driver);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to update location' });
