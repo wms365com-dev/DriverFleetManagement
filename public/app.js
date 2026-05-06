@@ -297,7 +297,7 @@ function renderMobileShell() {
 
 function getNavItems() {
   if (state.user?.role === 'driver') {
-    return [['driver', 'Driver Check-In'], ['bugReports', 'Report Bug']];
+    return [['driver', 'Check-In'], ['driverWork', 'Assigned Work'], ['bugReports', 'Report Bug']];
   }
   if (state.user?.role === 'support_staff') {
     return [
@@ -406,6 +406,7 @@ function getViewTitle(view) {
     inspections: 'Inspection Feed',
     issues: 'Issue Queue',
     bugReports: 'Bug Reports',
+    driverWork: 'Assigned Work',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
   };
   return titles[view] || 'Fleet Portal';
@@ -450,6 +451,7 @@ function renderView(view) {
   if (view === 'inspections') return renderInspections();
   if (view === 'issues') return renderIssues();
   if (view === 'bugReports') return renderBugReports();
+  if (view === 'driverWork') return renderDriverWorkPage();
   return renderDriverWorkspace();
 }
 
@@ -912,7 +914,6 @@ function renderDriverWorkspace() {
   const assignment = state.assignments.find(a => a.driverId === driverId && a.active);
   const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
   const activeShift = state.shifts.find(s => s.driverId === driverId && s.status === 'started');
-  const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['delivered', 'cancelled'].includes(load.status));
 
   return `
     <section class="mobile-stage">
@@ -933,10 +934,6 @@ function renderDriverWorkspace() {
           <div class="mobile-card primary-card">
             <div><p class="tiny">Assigned vehicle</p><strong>${vehicle ? esc(vehicle.unitNumber) : 'Not assigned'}</strong></div>
             <div><p class="tiny">Vehicle status</p>${vehicle ? statusTag(vehicle.status) : '—'}</div>
-          </div>
-          <div class="mobile-card stack compact">
-            <h3>My Loads</h3>
-            ${driverLoads.map(renderDriverLoadCard).join('') || '<p class="tiny">No active loads assigned.</p>'}
           </div>
           <div class="mobile-actions">
             <div class="quick-action-grid">
@@ -973,6 +970,30 @@ function renderDriverWorkspace() {
               <button class="btn ghost" type="submit" id="issueSubmitBtn">Report Issue</button>
             </form>` : `<div class="mobile-card"><p>No vehicle assigned yet.</p></div>`}
         </div>
+      </div>
+    </section>`;
+}
+
+function renderDriverWorkPage() {
+  const driverId = state.user.role === 'driver'
+    ? state.user.linkedDriverId
+    : (state.selectedDriverId || state.drivers[0]?.id || null);
+  const driver = byId(state.drivers, driverId) || {};
+  const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['delivered', 'cancelled'].includes(load.status));
+  const deliveredLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && load.status === 'delivered').slice(0, 5);
+  return `
+    <section class="mobile-stage">
+      <div class="mobile-card primary-card">
+        <div><p class="tiny">Driver</p><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim()) || 'Driver'}</strong></div>
+        <div><p class="tiny">Active work</p><strong>${driverLoads.length}</strong></div>
+      </div>
+      <div class="mobile-card stack compact">
+        <div class="panel-head"><h3>Assigned Loads</h3><p>Pickup, delivery, BOL, POD, and check-ins.</p></div>
+        ${driverLoads.map(renderDriverLoadCard).join('') || '<p class="tiny">No active loads assigned.</p>'}
+      </div>
+      <div class="mobile-card stack compact">
+        <div class="panel-head"><h3>Recent Delivered</h3><p>Latest completed loads</p></div>
+        ${deliveredLoads.map(load => renderLoadCard(load, false)).join('') || '<p class="tiny">No delivered loads yet.</p>'}
       </div>
     </section>`;
 }
@@ -1076,6 +1097,37 @@ function bindView(view) {
     });
   }
   if (view === 'driver') bindDriverWorkspace();
+  if (view === 'driverWork') bindDriverWorkPage();
+}
+
+function bindDriverWorkPage() {
+  bindPhotoPreviews();
+  document.querySelectorAll('.load-status-btn').forEach(btn => btn.onclick = async () => {
+    try {
+      await api(`/api/loads/${btn.dataset.loadId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: btn.dataset.status, note: 'Driver update' })
+      });
+      await loadEverything();
+      render();
+      setToast('Load updated', 'success');
+    } catch (error) {
+      setToast(error.message, 'error');
+    }
+  });
+
+  document.querySelectorAll('.load-doc-form').forEach(form => form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.submitter || form.querySelector('button[type="submit"]');
+    await guardedSubmit(`loadDoc${form.dataset.loadDoc}`, btn, 'Uploading...', async () => {
+      const fd = new FormData(form);
+      await api(`/api/loads/${form.dataset.loadDoc}/documents`, { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Document uploaded', 'success');
+    });
+  });
 }
 
 function bindDriverWorkspace() {
@@ -1160,32 +1212,6 @@ function bindDriverWorkspace() {
     });
   };
 
-  document.querySelectorAll('.load-status-btn').forEach(btn => btn.onclick = async () => {
-    try {
-      await api(`/api/loads/${btn.dataset.loadId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: btn.dataset.status, note: 'Driver update' })
-      });
-      await loadEverything();
-      render();
-      setToast('Load updated', 'success');
-    } catch (error) {
-      setToast(error.message, 'error');
-    }
-  });
-
-  document.querySelectorAll('.load-doc-form').forEach(form => form.onsubmit = async e => {
-    e.preventDefault();
-    const btn = e.submitter || form.querySelector('button[type="submit"]');
-    await guardedSubmit(`loadDoc${form.dataset.loadDoc}`, btn, 'Uploading...', async () => {
-      const fd = new FormData(form);
-      await api(`/api/loads/${form.dataset.loadDoc}/documents`, { method: 'POST', body: fd });
-      await loadEverything();
-      render();
-      setToast('Document uploaded', 'success');
-    });
-  });
 }
 
 

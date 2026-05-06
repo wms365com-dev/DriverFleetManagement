@@ -131,7 +131,7 @@ th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: l
 .mobile-app-shell .phone-frame { width:100%; margin:0; border:0; border-radius:24px; padding:0; background:transparent; box-shadow:none; }
 .mobile-app-shell .phone-notch { display:none; }
 .mobile-app-shell .phone-screen { min-height:auto; }
-.mobile-tabbar { position:fixed; left:50%; bottom:12px; transform:translateX(-50%); width:min(520px, calc(100% - 24px)); display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px; border:1px solid var(--line); border-radius:22px; background:rgba(8,17,31,.94); backdrop-filter:blur(16px); z-index:30; }
+.mobile-tabbar { position:fixed; left:50%; bottom:12px; transform:translateX(-50%); width:min(520px, calc(100% - 24px)); display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:10px; border:1px solid var(--line); border-radius:22px; background:rgba(8,17,31,.94); backdrop-filter:blur(16px); z-index:30; }
 .mobile-tabbar .nav-btn { text-align:center; padding:12px; border-radius:14px; }
 .phone-notch { width: 120px; height: 22px; margin: 0 auto 10px; background: #0d1828; border-radius: 999px; }
 .phone-screen { display: grid; gap: 12px; min-height: 760px; }
