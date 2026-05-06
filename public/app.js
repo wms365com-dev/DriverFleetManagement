@@ -9,6 +9,7 @@ const state = {
   shifts: [],
   inspections: [],
   issues: [],
+  loads: [],
   selectedCompanyId: null,
   selectedDriverId: null,
   activeView: null,
@@ -27,6 +28,41 @@ const state = {
 
 const inspectionItems = [
   'Lights', 'Brakes', 'Horn', 'Mirrors', 'Tires', 'Windshield', 'Wipers', 'Fluid Leaks', 'Coupling Equipment', 'Load Securement', 'Documents', 'Safety Equipment'
+];
+const equipmentTypes = [
+  ['tractor', 'Tractor'],
+  ['day_cab', 'Day Cab'],
+  ['sleeper_cab', 'Sleeper Cab'],
+  ['straight_truck', 'Straight Truck'],
+  ['box_truck', 'Box Truck'],
+  ['cargo_van', 'Cargo Van'],
+  ['sprinter_van', 'Sprinter Van'],
+  ['pickup_truck', 'Pickup Truck'],
+  ['hotshot_truck', 'Hotshot Truck'],
+  ['dry_van', 'Dry Van Trailer'],
+  ['reefer', 'Reefer Trailer'],
+  ['flatbed', 'Flatbed Trailer'],
+  ['step_deck', 'Step Deck Trailer'],
+  ['double_drop', 'Double Drop Trailer'],
+  ['conestoga', 'Conestoga Trailer'],
+  ['tanker', 'Tanker'],
+  ['dump_trailer', 'Dump Trailer'],
+  ['container_chassis', 'Container Chassis'],
+  ['gooseneck', 'Gooseneck'],
+  ['lowboy', 'Lowboy'],
+  ['car_hauler', 'Car Hauler'],
+  ['curtain_side', 'Curtain Side'],
+  ['liftgate_trailer', 'Liftgate Trailer'],
+  ['other', 'Other']
+];
+const loadStatusFlow = [
+  ['accepted', 'Accept'],
+  ['en_route_pickup', 'En Route Pickup'],
+  ['at_pickup', 'At Pickup'],
+  ['picked_up', 'Confirm Pickup'],
+  ['in_transit', 'In Transit'],
+  ['at_delivery', 'At Delivery'],
+  ['delivered', 'Confirm Delivery']
 ];
 
 function setToast(message, type = '') {
@@ -120,6 +156,21 @@ function vehicleName(id) { const v = byId(state.vehicles, id); return v ? esc(v.
 function fmt(ts) { return ts ? esc(new Date(ts).toLocaleString()) : '&mdash;'; }
 function failedItems(inspection) {
   return (inspection.itemResults || []).filter(item => item.result === 'fail');
+}
+function typeLabel(type) {
+  return equipmentTypes.find(([value]) => value === type)?.[1] || String(type || '').replaceAll('_', ' ');
+}
+function loadStatusTag(load) {
+  return statusTag(load.status || 'new');
+}
+function activeLoads() {
+  return state.loads.filter(load => !['delivered', 'cancelled'].includes(load.status));
+}
+function powerUnits() {
+  return state.vehicles.filter(v => (v.category || 'power_unit') === 'power_unit');
+}
+function trailers() {
+  return state.vehicles.filter(v => (v.category || 'power_unit') !== 'power_unit');
 }
 function getCurrentCompany() { return byId(state.companies, state.selectedCompanyId) || null; }
 function isSuper() { return state.user?.role === 'super_user'; }
@@ -229,6 +280,7 @@ function getNavItems() {
   if (state.user?.role === 'support_staff') {
     return [
       ['dispatchHome', 'Dispatch Home'],
+      ['loads', 'Loads'],
       ['map', 'Live Map'],
       ['shifts', 'Shift Monitor'],
       ['inspections', 'Inspections'],
@@ -317,6 +369,7 @@ function getViewTitle(view) {
     platformHome: 'Platform Home',
     adminHome: 'Admin Home',
     dispatchHome: 'Dispatch Home',
+    loads: 'Load Dispatch',
     companies: 'Company Setup',
     users: 'Users & Access',
     dashboard: 'Dispatch Dashboard',
@@ -359,6 +412,7 @@ function renderView(view) {
   if (view === 'platformHome') return renderPlatformHome();
   if (view === 'adminHome') return renderAdminHome();
   if (view === 'dispatchHome') return renderDispatchHome();
+  if (view === 'loads') return renderLoads();
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
@@ -468,8 +522,10 @@ function renderDispatchHome() {
           <div class="metric-card glass"><span>Tracked Drivers</span><strong>${d.trackedDrivers || 0}</strong></div>
           <div class="metric-card glass"><span>Inspections Today</span><strong>${d.inspectionsToday}</strong></div>
           <div class="metric-card glass"><span>Open Issues</span><strong>${d.openIssues}</strong></div>
+          <div class="metric-card glass"><span>Active Loads</span><strong>${activeLoads().length}</strong></div>
         </div>
         <div class="quick-action-grid action-grid">
+          <button class="list-card action-card" data-view-link="loads"><strong>Loads</strong><span>Create loads and monitor pickup/delivery.</span></button>
           <button class="list-card action-card" data-view-link="map"><strong>Live Map</strong><span>Monitor driver GPS updates.</span></button>
           <button class="list-card action-card" data-view-link="shifts"><strong>Shift Monitor</strong><span>Review check-ins and check-outs.</span></button>
           <button class="list-card action-card" data-view-link="inspections"><strong>Inspections</strong><span>Review submitted vehicle inspections.</span></button>
@@ -648,7 +704,7 @@ function renderVehicles() {
       <section class="panel glass">
         <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list for this company</p></div>
         <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody>
-          ${state.vehicles.map(v => `<tr><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
+          ${state.vehicles.map(v => `<tr><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(typeLabel(v.type))}<div class="tiny">${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</div></td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -657,7 +713,11 @@ function renderVehicles() {
           <label>Unit number<input name="unitNumber" required /></label>
           <div class="split"><label>Plate<input name="plateNumber" /></label><label>VIN<input name="vin" /></label></div>
           <div class="split"><label>Make<input name="make" /></label><label>Model<input name="model" /></label></div>
-          <div class="split"><label>Year<input name="year" type="number" /></label><label>Type<select name="type"><option value="tractor">Tractor</option><option value="straight_truck">Straight Truck</option><option value="trailer">Trailer</option><option value="van">Van</option></select></label></div>
+          <div class="split"><label>Year<input name="year" type="number" /></label><label>Category<select name="category"><option value="power_unit">Power Unit</option><option value="trailer">Trailer / Equipment</option></select></label></div>
+          <label>Equipment type<select name="type">${equipmentTypes.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('')}</select></label>
+          <div class="split"><label>Length<input name="length" placeholder="53 ft" /></label><label>Max weight<input name="maxWeight" type="number" /></label></div>
+          <div class="split"><label class="inline-check"><input type="checkbox" name="temperatureCapable" value="true" /> Temperature capable</label><label class="inline-check"><input type="checkbox" name="liftgate" value="true" /> Liftgate</label></div>
+          <label class="inline-check"><input type="checkbox" name="hazmatCapable" value="true" /> Hazmat capable</label>
           <div class="split"><label>Odometer<input name="odometer" type="number" /></label><label>Status<select name="status"><option value="active">Active</option><option value="needs_review">Needs Review</option><option value="out_of_service">Out of Service</option></select></label></div>
           <button class="btn primary" type="submit">Save Vehicle</button>
         </form>
@@ -695,6 +755,53 @@ function renderShifts() {
     </section>`;
 }
 
+function renderLoads() {
+  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Load Board</h3><p>${activeLoads().length} active loads</p></div>
+        <div class="load-board">
+          ${state.loads.map(load => renderLoadCard(load, true)).join('') || '<p class="tiny">No loads yet.</p>'}
+        </div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Create Load</h3><p>Assign pickup, delivery, driver, truck, and trailer.</p></div>
+        <form id="loadForm" class="stack compact">
+          <div class="split"><label>Load #<input name="loadNumber" required /></label><label>Reference<input name="referenceNumber" /></label></div>
+          <div class="split"><label>Customer<input name="customer" /></label><label>Broker<input name="broker" /></label></div>
+          <label>Pickup name<input name="pickupName" /></label>
+          <label>Pickup address<input name="pickupAddress" /></label>
+          <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
+          <label>Delivery name<input name="deliveryName" /></label>
+          <label>Delivery address<input name="deliveryAddress" /></label>
+          <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
+          <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
+          <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
+          <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}">${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
+          <label>Power unit<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
+          <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
+          <label>Notes<textarea name="notes"></textarea></label>
+          <button class="btn primary" type="submit">Create Load</button>
+        </form>
+      </section>
+    </div>`;
+}
+
+function renderLoadCard(load, dispatcher = false) {
+  const docs = load.documents || [];
+  return `<article class="load-card">
+    <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')}</p></div>${loadStatusTag(load)}</div>
+    <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
+    <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
+    <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
+    <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
+    ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
+    ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
+  </article>`;
+}
+
 function renderInspections() {
   return `
     <section class="panel glass">
@@ -722,6 +829,7 @@ function renderDriverWorkspace() {
   const assignment = state.assignments.find(a => a.driverId === driverId && a.active);
   const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
   const activeShift = state.shifts.find(s => s.driverId === driverId && s.status === 'started');
+  const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['delivered', 'cancelled'].includes(load.status));
 
   return `
     <section class="mobile-stage">
@@ -742,6 +850,10 @@ function renderDriverWorkspace() {
           <div class="mobile-card primary-card">
             <div><p class="tiny">Assigned vehicle</p><strong>${vehicle ? esc(vehicle.unitNumber) : 'Not assigned'}</strong></div>
             <div><p class="tiny">Vehicle status</p>${vehicle ? statusTag(vehicle.status) : '—'}</div>
+          </div>
+          <div class="mobile-card stack compact">
+            <h3>My Loads</h3>
+            ${driverLoads.map(renderDriverLoadCard).join('') || '<p class="tiny">No active loads assigned.</p>'}
           </div>
           <div class="mobile-actions">
             <div class="quick-action-grid">
@@ -782,6 +894,24 @@ function renderDriverWorkspace() {
     </section>`;
 }
 
+function renderDriverLoadCard(load) {
+  return `<article class="load-card driver-load-card">
+    <div class="card-row"><strong>${esc(load.loadNumber)}</strong>${loadStatusTag(load)}</div>
+    <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
+    <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
+    <div class="load-actions">
+      ${loadStatusFlow.map(([status, label]) => `<button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}">${esc(label)}</button>`).join('')}
+      <button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="exception">Exception</button>
+    </div>
+    <form class="load-doc-form stack compact" data-load-doc="${attr(load.id)}" enctype="multipart/form-data">
+      <div class="split"><label>Document type<select name="type"><option value="bol">BOL</option><option value="pod">POD</option><option value="receipt">Receipt</option><option value="other">Other</option></select></label><label>Photo<input class="photo-input" data-preview="loadPreview${attr(load.id)}" type="file" name="photos" multiple accept="image/*" capture="environment" /></label></div>
+      <label>Note<input name="note" placeholder="Optional document note" /></label>
+      <div class="photo-row" id="loadPreview${attr(load.id)}"></div>
+      <button class="btn primary small-btn" type="submit">Upload BOL / POD</button>
+    </form>
+  </article>`;
+}
+
 function bindView(view) {
   if (view === 'companies') {
     const form = document.getElementById('companyForm');
@@ -802,6 +932,10 @@ function bindView(view) {
   if (view === 'assignments') {
     const form = document.getElementById('assignmentForm');
     if (form) form.onsubmit = submitJsonForm('/api/assignments');
+  }
+  if (view === 'loads') {
+    const form = document.getElementById('loadForm');
+    if (form) form.onsubmit = submitJsonForm('/api/loads');
   }
   if (view === 'map') {
     startMapRefresh();
@@ -912,6 +1046,33 @@ function bindDriverWorkspace() {
       setToast('Issue reported', 'success');
     });
   };
+
+  document.querySelectorAll('.load-status-btn').forEach(btn => btn.onclick = async () => {
+    try {
+      await api(`/api/loads/${btn.dataset.loadId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: btn.dataset.status, note: 'Driver update' })
+      });
+      await loadEverything();
+      render();
+      setToast('Load updated', 'success');
+    } catch (error) {
+      setToast(error.message, 'error');
+    }
+  });
+
+  document.querySelectorAll('.load-doc-form').forEach(form => form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.submitter || form.querySelector('button[type="submit"]');
+    await guardedSubmit(`loadDoc${form.dataset.loadDoc}`, btn, 'Uploading...', async () => {
+      const fd = new FormData(form);
+      await api(`/api/loads/${form.dataset.loadDoc}/documents`, { method: 'POST', body: fd });
+      await loadEverything();
+      render();
+      setToast('Document uploaded', 'success');
+    });
+  });
 }
 
 
@@ -1035,6 +1196,7 @@ async function loadEverything() {
     state.shifts = [];
     state.inspections = [];
     state.issues = [];
+    state.loads = [];
     return;
   }
 
@@ -1046,10 +1208,11 @@ async function loadEverything() {
     api('/api/assignments'),
     api('/api/shifts'),
     api('/api/inspections'),
-    api('/api/issues')
+    api('/api/issues'),
+    api('/api/loads')
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -1058,6 +1221,7 @@ async function loadEverything() {
   state.shifts = shifts;
   state.inspections = inspections;
   state.issues = issues;
+  state.loads = loads;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }
 

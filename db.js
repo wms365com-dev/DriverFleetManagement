@@ -16,8 +16,8 @@ const seed = {
     { id: 2, companyId: 1, firstName: 'AJ', lastName: 'Thompson', phone: '555-100-2211', email: 'aj@fleetdemo.com', licenseNumber: 'AZ-778210', licenseClass: 'AZ', licenseExpiry: '2027-12-31', status: 'active', lastLat: 43.7001, lastLng: -79.4163, lastSeenAt: new Date().toISOString(), trackingEnabled: false }
   ],
   vehicles: [
-    { id: 1, companyId: 1, unitNumber: 'TRK-101', plateNumber: 'ABCD123', vin: '1HGBH41JXMN109186', make: 'Freightliner', model: 'Cascadia', year: 2022, type: 'tractor', odometer: 124500, status: 'active' },
-    { id: 2, companyId: 1, unitNumber: 'TRK-205', plateNumber: 'EFGH456', vin: '2HGBH41JXMN109187', make: 'Volvo', model: 'VNL', year: 2021, type: 'tractor', odometer: 156900, status: 'needs_review' }
+    { id: 1, companyId: 1, unitNumber: 'TRK-101', plateNumber: 'ABCD123', vin: '1HGBH41JXMN109186', make: 'Freightliner', model: 'Cascadia', year: 2022, type: 'tractor', category: 'power_unit', length: '', maxWeight: null, temperatureCapable: false, liftgate: false, hazmatCapable: false, odometer: 124500, status: 'active' },
+    { id: 2, companyId: 1, unitNumber: 'TRK-205', plateNumber: 'EFGH456', vin: '2HGBH41JXMN109187', make: 'Volvo', model: 'VNL', year: 2021, type: 'sleeper_cab', category: 'power_unit', length: '', maxWeight: null, temperatureCapable: false, liftgate: false, hazmatCapable: false, odometer: 156900, status: 'needs_review' }
   ],
   assignments: [
     { id: 1, companyId: 1, driverId: 1, vehicleId: 1, active: true, assignedAt: new Date().toISOString(), unassignedAt: null },
@@ -25,6 +25,7 @@ const seed = {
   ],
   shifts: [],
   inspections: [],
+  loads: [],
   issues: [
     { id: 1, companyId: 1, shiftId: null, inspectionId: null, driverId: 2, vehicleId: 2, category: 'lights', severity: 'medium', description: 'Right marker light intermittent.', status: 'open', resolutionNotes: '', createdAt: new Date().toISOString(), closedAt: null, photos: [] }
   ]
@@ -74,10 +75,24 @@ function normalizeFileDb() {
     if (!Object.prototype.hasOwnProperty.call(driver, 'lastSeenAt')) { driver.lastSeenAt = null; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(driver, 'trackingEnabled')) { driver.trackingEnabled = false; changed = true; }
   }
+  for (const vehicle of db.vehicles) {
+    if (!vehicle.companyId) { vehicle.companyId = seedCompany.id; changed = true; }
+    if (!vehicle.category) { vehicle.category = ['dry_van', 'reefer', 'flatbed', 'step_deck', 'container_chassis', 'trailer'].includes(vehicle.type) ? 'trailer' : 'power_unit'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'length')) { vehicle.length = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'maxWeight')) { vehicle.maxWeight = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'temperatureCapable')) { vehicle.temperatureCapable = false; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'liftgate')) { vehicle.liftgate = false; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'hazmatCapable')) { vehicle.hazmatCapable = false; changed = true; }
+  }
   for (const key of ['vehicles', 'assignments', 'shifts', 'inspections', 'issues']) {
     for (const item of db[key]) {
       if (!item.companyId) { item.companyId = seedCompany.id; changed = true; }
     }
+  }
+  for (const load of db.loads) {
+    if (!load.companyId) { load.companyId = seedCompany.id; changed = true; }
+    if (!Array.isArray(load.events)) { load.events = []; changed = true; }
+    if (!Array.isArray(load.documents)) { load.documents = []; changed = true; }
   }
   if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
@@ -137,6 +152,12 @@ function mapVehicle(r) {
     model: r.model || '',
     year: r.year || '',
     type: r.type || '',
+    category: r.category || 'power_unit',
+    length: r.length || '',
+    maxWeight: r.max_weight ?? r.maxWeight ?? null,
+    temperatureCapable: r.temperature_capable ?? r.temperatureCapable ?? false,
+    liftgate: r.liftgate ?? false,
+    hazmatCapable: r.hazmat_capable ?? r.hazmatCapable ?? false,
     odometer: r.odometer || 0,
     status: r.status
   };
@@ -152,6 +173,35 @@ function mapInspection(r) {
 }
 function mapIssue(r) {
   return { id: r.id, companyId: r.company_id ?? r.companyId, shiftId: r.shift_id ?? r.shiftId, inspectionId: r.inspection_id ?? r.inspectionId, driverId: r.driver_id ?? r.driverId, vehicleId: r.vehicle_id ?? r.vehicleId, category: r.category || 'other', severity: r.severity || 'low', description: r.description || '', status: r.status, resolutionNotes: r.resolution_notes || r.resolutionNotes || '', createdAt: r.created_at || r.createdAt, closedAt: r.closed_at || r.closedAt || null, photos: r.photos || [] };
+}
+function mapLoad(r) {
+  return {
+    id: r.id,
+    companyId: r.company_id ?? r.companyId,
+    loadNumber: r.load_number || r.loadNumber,
+    customer: r.customer || '',
+    broker: r.broker || '',
+    referenceNumber: r.reference_number || r.referenceNumber || '',
+    pickupName: r.pickup_name || r.pickupName || '',
+    pickupAddress: r.pickup_address || r.pickupAddress || '',
+    pickupAppointment: r.pickup_appointment || r.pickupAppointment || '',
+    deliveryName: r.delivery_name || r.deliveryName || '',
+    deliveryAddress: r.delivery_address || r.deliveryAddress || '',
+    deliveryAppointment: r.delivery_appointment || r.deliveryAppointment || '',
+    commodity: r.commodity || '',
+    weight: r.weight ?? 0,
+    pieces: r.pieces ?? '',
+    rate: r.rate ?? '',
+    notes: r.notes || '',
+    driverId: r.driver_id ?? r.driverId ?? null,
+    vehicleId: r.vehicle_id ?? r.vehicleId ?? null,
+    trailerId: r.trailer_id ?? r.trailerId ?? null,
+    status: r.status || 'new',
+    events: r.events || [],
+    documents: r.documents || [],
+    createdAt: r.created_at || r.createdAt,
+    updatedAt: r.updated_at || r.updatedAt
+  };
 }
 
 function safeUser(user) {
@@ -241,6 +291,12 @@ async function initPostgres() {
     model TEXT,
     year INTEGER,
     type TEXT,
+    category TEXT NOT NULL DEFAULT 'power_unit',
+    length TEXT,
+    max_weight INTEGER,
+    temperature_capable BOOLEAN NOT NULL DEFAULT false,
+    liftgate BOOLEAN NOT NULL DEFAULT false,
+    hazmat_capable BOOLEAN NOT NULL DEFAULT false,
     odometer INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active'
   );
@@ -292,12 +348,45 @@ async function initPostgres() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMPTZ,
     photos JSONB NOT NULL DEFAULT '[]'::jsonb
+  );
+  CREATE TABLE IF NOT EXISTS loads (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    load_number TEXT NOT NULL,
+    customer TEXT,
+    broker TEXT,
+    reference_number TEXT,
+    pickup_name TEXT,
+    pickup_address TEXT,
+    pickup_appointment TIMESTAMPTZ,
+    delivery_name TEXT,
+    delivery_address TEXT,
+    delivery_appointment TIMESTAMPTZ,
+    commodity TEXT,
+    weight INTEGER DEFAULT 0,
+    pieces TEXT,
+    rate TEXT,
+    notes TEXT,
+    driver_id INTEGER,
+    vehicle_id INTEGER,
+    trailer_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'new',
+    events JSONB NOT NULL DEFAULT '[]'::jsonb,
+    documents JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );`;
   await pool.query(schema);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'power_unit'`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS length TEXT`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS max_weight INTEGER`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS temperature_capable BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS liftgate BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hazmat_capable BOOLEAN NOT NULL DEFAULT false`);
 
   const companyCount = Number((await pool.query('SELECT COUNT(*) FROM companies')).rows[0].count);
   if (!companyCount) {
@@ -306,7 +395,7 @@ async function initPostgres() {
       await pool.query(`INSERT INTO drivers (id,company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status,last_lat,last_lng,last_seen_at,tracking_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [d.id,d.companyId,d.firstName,d.lastName,d.phone,d.email,d.licenseNumber,d.licenseClass,d.licenseExpiry,d.status,d.lastLat||null,d.lastLng||null,d.lastSeenAt||null,d.trackingEnabled||false]);
     }
     for (const v of seed.vehicles) {
-      await pool.query(`INSERT INTO vehicles (id,company_id,unit_number,plate_number,vin,make,model,year,type,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [v.id,v.companyId,v.unitNumber,v.plateNumber,v.vin,v.make,v.model,v.year,v.type,v.odometer,v.status]);
+      await pool.query(`INSERT INTO vehicles (id,company_id,unit_number,plate_number,vin,make,model,year,type,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, [v.id,v.companyId,v.unitNumber,v.plateNumber,v.vin,v.make,v.model,v.year,v.type,v.category || 'power_unit',v.length || '',v.maxWeight || null,!!v.temperatureCapable,!!v.liftgate,!!v.hazmatCapable,v.odometer,v.status]);
     }
     for (const a of seed.assignments) {
       await pool.query(`INSERT INTO assignments (id,company_id,driver_id,vehicle_id,active,assigned_at,unassigned_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [a.id,a.companyId,a.driverId,a.vehicleId,a.active,a.assignedAt,a.unassignedAt]);
@@ -345,6 +434,15 @@ const commonMethods = {
   },
   async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) {
     throw new Error('Not implemented');
+  },
+  buildLoadEvent(status, note = '', user = null) {
+    return {
+      status,
+      note: note || '',
+      userId: user?.id || null,
+      userName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : '',
+      at: new Date().toISOString()
+    };
   }
 };
 
@@ -474,6 +572,39 @@ const fileDb = {
     writeFileDb(db);
     return driver;
   },
+  async getLoads(companyId) { return readFileDb().loads.filter(l => Number(l.companyId) === Number(companyId)).map(mapLoad).sort((a, b) => Number(b.id) - Number(a.id)); },
+  async createLoad(companyId, payload, user) {
+    const db = readFileDb();
+    if (payload.driverId && !db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(payload.driverId))) throw new Error('Driver not found.');
+    if (payload.vehicleId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Power unit not found.');
+    if (payload.trailerId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.trailerId))) throw new Error('Trailer/equipment not found.');
+    const status = payload.driverId ? 'assigned' : 'new';
+    const load = { id: nextId(db.loads), companyId, ...payload, status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    db.loads.push(load);
+    writeFileDb(db);
+    return mapLoad(load);
+  },
+  async updateLoadStatus(companyId, id, status, note, user) {
+    const db = readFileDb();
+    const load = db.loads.find(l => Number(l.companyId) === Number(companyId) && Number(l.id) === Number(id));
+    if (!load) throw new Error('Load not found.');
+    load.status = status || load.status;
+    load.updatedAt = new Date().toISOString();
+    load.events = [...(load.events || []), commonMethods.buildLoadEvent(load.status, note, user)];
+    writeFileDb(db);
+    return mapLoad(load);
+  },
+  async addLoadDocument(companyId, id, document, user) {
+    const db = readFileDb();
+    const load = db.loads.find(l => Number(l.companyId) === Number(companyId) && Number(l.id) === Number(id));
+    if (!load) throw new Error('Load not found.');
+    const doc = { ...document, uploadedBy: user?.id || null, uploadedAt: new Date().toISOString() };
+    load.documents = [...(load.documents || []), doc];
+    load.updatedAt = new Date().toISOString();
+    load.events = [...(load.events || []), commonMethods.buildLoadEvent(load.status, `${document.type || 'document'} uploaded`, user)];
+    writeFileDb(db);
+    return mapLoad(load);
+  },
   ...commonMethods
 };
 
@@ -520,7 +651,7 @@ const pgDb = {
     } finally { client.release(); }
   },
   async getVehicles(companyId) { const r = await pool.query('SELECT * FROM vehicles WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapVehicle); },
-  async createVehicle(companyId, data) { const r = await pool.query(`INSERT INTO vehicles (company_id,unit_number,plate_number,vin,make,model,year,type,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [companyId, data.unitNumber, data.plateNumber || '', data.vin || '', data.make || '', data.model || '', data.year || null, data.type || 'tractor', data.odometer || 0, data.status || 'active']); return mapVehicle(r.rows[0]); },
+  async createVehicle(companyId, data) { const r = await pool.query(`INSERT INTO vehicles (company_id,unit_number,plate_number,vin,make,model,year,type,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [companyId, data.unitNumber, data.plateNumber || '', data.vin || '', data.make || '', data.model || '', data.year || null, data.type || 'tractor', data.category || 'power_unit', data.length || '', data.maxWeight || null, !!data.temperatureCapable, !!data.liftgate, !!data.hazmatCapable, data.odometer || 0, data.status || 'active']); return mapVehicle(r.rows[0]); },
   async getAssignments(companyId) { const r = await pool.query('SELECT * FROM assignments WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapAssignment); },
   async assignVehicle(companyId, driverId, vehicleId) {
     const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, driverId]);
@@ -569,6 +700,32 @@ const pgDb = {
   async updateIssue(companyId, id, status, resolutionNotes) { const r = await pool.query(`UPDATE issues SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE company_id=$1 AND id=$2 RETURNING *`, [companyId, id, status, resolutionNotes || null]); if (!r.rows[0]) throw new Error('Issue not found.'); return mapIssue(r.rows[0]); },
   async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) { const r = await pool.query('UPDATE drivers SET last_lat=$3,last_lng=$4,last_seen_at=NOW(),tracking_enabled=$5 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, driverId, Number(lat), Number(lng), !!trackingEnabled]); if (!r.rows[0]) throw new Error('Driver not found.'); return mapDriver(r.rows[0]); },
   async updateVehicleStatus(companyId, vehicleId, status) { const r = await pool.query('UPDATE vehicles SET status=$3 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, vehicleId, status]); return r.rows[0] ? mapVehicle(r.rows[0]) : null; },
+  async getLoads(companyId) { const r = await pool.query('SELECT * FROM loads WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapLoad); },
+  async createLoad(companyId, payload, user) {
+    if (payload.driverId) { const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, payload.driverId]); if (!driver.rows[0]) throw new Error('Driver not found.'); }
+    if (payload.vehicleId) { const vehicle = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.vehicleId]); if (!vehicle.rows[0]) throw new Error('Power unit not found.'); }
+    if (payload.trailerId) { const trailer = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.trailerId]); if (!trailer.rows[0]) throw new Error('Trailer/equipment not found.'); }
+    const status = payload.driverId ? 'assigned' : 'new';
+    const events = [commonMethods.buildLoadEvent(status, 'Load created', user)];
+    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,delivery_name,delivery_address,delivery_appointment,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,status,JSON.stringify(events)]);
+    return mapLoad(r.rows[0]);
+  },
+  async updateLoadStatus(companyId, id, status, note, user) {
+    const existing = await pool.query('SELECT * FROM loads WHERE company_id=$1 AND id=$2', [companyId, id]);
+    if (!existing.rows[0]) throw new Error('Load not found.');
+    const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(status || existing.rows[0].status, note, user)];
+    const r = await pool.query('UPDATE loads SET status=$3, events=$4::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, id, status || existing.rows[0].status, JSON.stringify(events)]);
+    return mapLoad(r.rows[0]);
+  },
+  async addLoadDocument(companyId, id, document, user) {
+    const existing = await pool.query('SELECT * FROM loads WHERE company_id=$1 AND id=$2', [companyId, id]);
+    if (!existing.rows[0]) throw new Error('Load not found.');
+    const doc = { ...document, uploadedBy: user?.id || null, uploadedAt: new Date().toISOString() };
+    const docs = [...(existing.rows[0].documents || []), doc];
+    const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(existing.rows[0].status, `${document.type || 'document'} uploaded`, user)];
+    const r = await pool.query('UPDATE loads SET documents=$3::jsonb, events=$4::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, id, JSON.stringify(docs), JSON.stringify(events)]);
+    return mapLoad(r.rows[0]);
+  },
   ...commonMethods
 };
 

@@ -122,6 +122,32 @@ function parseInspectionItems(raw) {
     notes: String(item.notes || '').slice(0, 500)
   }));
 }
+function loadPayload(body) {
+  return {
+    loadNumber: String(body.loadNumber || '').trim(),
+    customer: body.customer || '',
+    broker: body.broker || '',
+    referenceNumber: body.referenceNumber || '',
+    pickupName: body.pickupName || '',
+    pickupAddress: body.pickupAddress || '',
+    pickupAppointment: body.pickupAppointment || null,
+    deliveryName: body.deliveryName || '',
+    deliveryAddress: body.deliveryAddress || '',
+    deliveryAppointment: body.deliveryAppointment || null,
+    commodity: body.commodity || '',
+    weight: Number(body.weight) || 0,
+    pieces: body.pieces || '',
+    rate: body.rate || '',
+    notes: body.notes || '',
+    driverId: Number(body.driverId) || null,
+    vehicleId: Number(body.vehicleId) || null,
+    trailerId: Number(body.trailerId) || null
+  };
+}
+function canDriverAccessLoad(req, load) {
+  return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
+}
+const driverLoadStatuses = new Set(['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'exception']);
 
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, superUserConfigured: await db.hasAdminSetup() });
@@ -236,6 +262,12 @@ app.post('/api/vehicles', auth, staffOnly, requireCompanyScope, async (req, res)
       model: req.body.model || '',
       year: Number(req.body.year) || null,
       type: req.body.type || 'tractor',
+      category: req.body.category || 'power_unit',
+      length: req.body.length || '',
+      maxWeight: Number(req.body.maxWeight) || null,
+      temperatureCapable: req.body.temperatureCapable === true || req.body.temperatureCapable === 'true',
+      liftgate: req.body.liftgate === true || req.body.liftgate === 'true',
+      hazmatCapable: req.body.hazmatCapable === true || req.body.hazmatCapable === 'true',
       odometer: Number(req.body.odometer) || 0,
       status: req.body.status || 'active'
     });
@@ -390,6 +422,58 @@ app.patch('/api/issues/:id', auth, staffOnly, requireCompanyScope, async (req, r
     res.json(issue);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/loads', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  const loads = await db.getLoads(req.companyId);
+  if (isDriver(req)) return res.json(loads.filter(load => Number(load.driverId) === Number(req.sessionUser.linkedDriverId)));
+  res.json(loads);
+});
+app.post('/api/loads', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const payload = loadPayload(req.body);
+    if (!payload.loadNumber) return res.status(400).json({ error: 'Load number is required' });
+    const load = await db.createLoad(req.companyId, payload, req.sessionUser);
+    res.json(load);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create load' });
+  }
+});
+app.patch('/api/loads/:id/status', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  try {
+    const loads = await db.getLoads(req.companyId);
+    const load = loads.find(l => Number(l.id) === Number(req.params.id));
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!canDriverAccessLoad(req, load)) return res.status(403).json({ error: 'Drivers can only update assigned loads' });
+    const status = String(req.body.status || '').trim();
+    if (isDriver(req) && !driverLoadStatuses.has(status)) return res.status(400).json({ error: 'Invalid driver load status' });
+    const updated = await db.updateLoadStatus(req.companyId, load.id, status, req.body.note || '', req.sessionUser);
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update load' });
+  }
+});
+app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverProfile, upload.array('photos', 8), async (req, res) => {
+  try {
+    const loads = await db.getLoads(req.companyId);
+    const load = loads.find(l => Number(l.id) === Number(req.params.id));
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!canDriverAccessLoad(req, load)) return res.status(403).json({ error: 'Drivers can only upload documents for assigned loads' });
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'At least one photo is required' });
+    let updated = load;
+    for (const file of files) {
+      updated = await db.addLoadDocument(req.companyId, load.id, {
+        type: req.body.type || 'bol',
+        note: req.body.note || '',
+        filename: file.filename,
+        url: `/uploads/${file.filename}`
+      }, req.sessionUser);
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to upload document' });
   }
 });
 
