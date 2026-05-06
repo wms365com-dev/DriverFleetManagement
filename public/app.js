@@ -10,6 +10,7 @@ const state = {
   inspections: [],
   issues: [],
   loads: [],
+  bugReports: [],
   selectedCompanyId: null,
   selectedDriverId: null,
   activeView: null,
@@ -248,9 +249,11 @@ async function guardedSubmit(formKey, btn, text, action) {
 function render() {
   document.getElementById('app').innerHTML = `
     <div class="toast" id="toast"></div>
-    ${state.user ? renderShell() : renderLogin()}
+    ${state.user ? (state.user.role === 'driver' ? renderMobileShell() : renderShell()) : renderLogin()}
   `;
-  if (state.user) bindShell(); else bindLogin();
+  if (state.user) {
+    if (state.user.role === 'driver') bindMobileShell(); else bindShell();
+  } else bindLogin();
 }
 
 function renderLogin() {
@@ -273,9 +276,28 @@ function renderLogin() {
   </div>`;
 }
 
+function renderMobileShell() {
+  const activeView = canAccessView(state.activeView) ? state.activeView : getDefaultView();
+  state.activeView = activeView;
+  return `
+    <div class="mobile-app-shell">
+      <header class="mobile-app-top">
+        <div>
+          <p class="eyebrow">Driver App</p>
+          <h1>${getViewTitle(activeView)}</h1>
+        </div>
+        <button id="logoutBtn" class="btn ghost small-btn">Log Out</button>
+      </header>
+      <main id="viewContainer" class="mobile-app-main"></main>
+      <nav class="mobile-tabbar">
+        ${getNavItems().map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${esc(label)}</button>`).join('')}
+      </nav>
+    </div>`;
+}
+
 function getNavItems() {
   if (state.user?.role === 'driver') {
-    return [['driver', 'Driver Check-In']];
+    return [['driver', 'Driver Check-In'], ['bugReports', 'Report Bug']];
   }
   if (state.user?.role === 'support_staff') {
     return [
@@ -284,7 +306,8 @@ function getNavItems() {
       ['map', 'Live Map'],
       ['shifts', 'Shift Monitor'],
       ['inspections', 'Inspections'],
-      ['issues', 'Issue Queue']
+      ['issues', 'Issue Queue'],
+      ['bugReports', 'Bug Reports']
     ];
   }
   if (state.user?.role === 'admin') {
@@ -293,13 +316,15 @@ function getNavItems() {
       ['users', 'Users'],
       ['drivers', 'Drivers'],
       ['vehicles', 'Vehicles'],
-      ['assignments', 'Assignments']
+      ['assignments', 'Assignments'],
+      ['bugReports', 'Bug Reports']
     ];
   }
   return [
     ['platformHome', 'Platform Home'],
     ['companies', 'Companies'],
-    ['users', 'Company Users']
+    ['users', 'Company Users'],
+    ['bugReports', 'Bug Reports']
   ];
 }
 
@@ -380,6 +405,7 @@ function getViewTitle(view) {
     shifts: 'Shift Timeline',
     inspections: 'Inspection Feed',
     issues: 'Issue Queue',
+    bugReports: 'Bug Reports',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
   };
   return titles[view] || 'Fleet Portal';
@@ -423,6 +449,7 @@ function renderView(view) {
   if (view === 'shifts') return renderShifts();
   if (view === 'inspections') return renderInspections();
   if (view === 'issues') return renderIssues();
+  if (view === 'bugReports') return renderBugReports();
   return renderDriverWorkspace();
 }
 
@@ -451,6 +478,33 @@ function bindShell() {
   if (scopeSelect) scopeSelect.onchange = () => updateScope(scopeSelect.value);
   const topbarScopeSelect = document.getElementById('topbarCompanyScopeSelect');
   if (topbarScopeSelect) topbarScopeSelect.onchange = () => updateScope(topbarScopeSelect.value);
+
+  startDriverTracking();
+
+  document.getElementById('logoutBtn').onclick = async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
+    state.user = null;
+    state.companies = [];
+    state.users = [];
+    state.selectedCompanyId = null;
+    state.activeView = null;
+    stopDriverTracking();
+    render();
+  };
+}
+
+function bindMobileShell() {
+  const activeView = canAccessView(state.activeView) ? state.activeView : getDefaultView();
+  state.activeView = activeView;
+  document.getElementById('viewContainer').innerHTML = renderView(activeView);
+  bindView(activeView);
+
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.onclick = () => {
+      state.activeView = btn.dataset.view;
+      render();
+    };
+  });
 
   startDriverTracking();
 
@@ -821,6 +875,35 @@ function renderIssues() {
     </section>`;
 }
 
+function renderBugReports() {
+  const canReview = state.user?.role !== 'driver';
+  return `
+    <div class="two-col">
+      ${canReview ? `<section class="panel glass">
+        <div class="panel-head"><h3>Reported Bugs</h3><p>Open app issues from drivers and staff.</p></div>
+        <div class="issue-list">${state.bugReports.map(report => `
+          <article class="issue-card">
+            <div class="panel-head"><div><strong>${esc(report.title)}</strong><p class="tiny">${esc(report.reporterName || 'Unknown')} &middot; ${fmt(report.createdAt)} &middot; ${esc(report.page || 'No page')}</p></div><div class="stack-right">${statusTag(report.priority)}${statusTag(report.status)}</div></div>
+            <p>${esc(report.description || '')}</p>
+            ${report.photos?.length ? `<div class="photo-row">${report.photos.map(p => `<a class="doc-thumb" href="${attr(p.url)}" target="_blank" rel="noopener"><img src="${attr(p.url)}" alt="bug screenshot" /><span>shot</span></a>`).join('')}</div>` : ''}
+            ${report.status !== 'closed' ? `<button class="btn primary small-btn close-bug" data-id="${attr(report.id)}">Mark Fixed</button>` : `<p class="tiny">Closed ${fmt(report.closedAt)}</p>`}
+          </article>`).join('') || '<p class="tiny">No bug reports yet.</p>'}</div>
+      </section>` : ''}
+      <section class="panel glass ${canReview ? '' : 'mobile-card'}">
+        <div class="panel-head"><h3>Report a Bug</h3><p>Send the page, what happened, and an optional screenshot.</p></div>
+        <form id="bugReportForm" class="stack compact" enctype="multipart/form-data">
+          <input type="hidden" name="page" value="${attr(getViewTitle(state.activeView || ''))}" />
+          <label>Title<input name="title" required placeholder="Example: Cannot upload BOL" /></label>
+          <div class="split"><label>Type<select name="category"><option value="bug">Bug</option><option value="data_issue">Data Issue</option><option value="feature_request">Feature Request</option><option value="training">Training / Confusing</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label></div>
+          <label>Description<textarea name="description" required placeholder="What did you expect, and what happened?"></textarea></label>
+          <label>Screenshot / photo<input class="photo-input" data-preview="bugPreview" type="file" name="photos" multiple accept="image/*" /></label>
+          <div class="photo-row" id="bugPreview"></div>
+          <button class="btn primary" type="submit">Submit Bug Report</button>
+        </form>
+      </section>
+    </div>`;
+}
+
 function renderDriverWorkspace() {
   const driverId = state.user.role === 'driver'
     ? state.user.linkedDriverId
@@ -957,6 +1040,36 @@ function bindView(view) {
         await loadEverything();
         render();
         setToast('Issue closed', 'success');
+      } catch (error) {
+        setToast(error.message, 'error');
+      }
+    });
+  }
+  if (view === 'bugReports') {
+    bindPhotoPreviews();
+    const form = document.getElementById('bugReportForm');
+    if (form) form.onsubmit = async e => {
+      e.preventDefault();
+      const btn = e.submitter || form.querySelector('button[type="submit"]');
+      await guardedSubmit('bugReport', btn, 'Submitting...', async () => {
+        const fd = new FormData(form);
+        await api('/api/bug-reports', { method: 'POST', body: fd });
+        form.reset();
+        await loadEverything();
+        render();
+        setToast('Bug report submitted', 'success');
+      });
+    };
+    document.querySelectorAll('.close-bug').forEach(btn => btn.onclick = async () => {
+      try {
+        await api(`/api/bug-reports/${btn.dataset.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'closed', resolutionNotes: 'Marked fixed from bug reports' })
+        });
+        await loadEverything();
+        render();
+        setToast('Bug report closed', 'success');
       } catch (error) {
         setToast(error.message, 'error');
       }
@@ -1197,6 +1310,7 @@ async function loadEverything() {
     state.inspections = [];
     state.issues = [];
     state.loads = [];
+    state.bugReports = [];
     return;
   }
 
@@ -1209,10 +1323,11 @@ async function loadEverything() {
     api('/api/shifts'),
     api('/api/inspections'),
     api('/api/issues'),
-    api('/api/loads')
+    api('/api/loads'),
+    isStaffLike() ? api('/api/bug-reports') : Promise.resolve([])
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, bugReports] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -1222,6 +1337,7 @@ async function loadEverything() {
   state.inspections = inspections;
   state.issues = issues;
   state.loads = loads;
+  state.bugReports = bugReports;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }
 

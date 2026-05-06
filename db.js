@@ -26,6 +26,7 @@ const seed = {
   shifts: [],
   inspections: [],
   loads: [],
+  bugReports: [],
   issues: [
     { id: 1, companyId: 1, shiftId: null, inspectionId: null, driverId: 2, vehicleId: 2, category: 'lights', severity: 'medium', description: 'Right marker light intermittent.', status: 'open', resolutionNotes: '', createdAt: new Date().toISOString(), closedAt: null, photos: [] }
   ]
@@ -93,6 +94,10 @@ function normalizeFileDb() {
     if (!load.companyId) { load.companyId = seedCompany.id; changed = true; }
     if (!Array.isArray(load.events)) { load.events = []; changed = true; }
     if (!Array.isArray(load.documents)) { load.documents = []; changed = true; }
+  }
+  for (const report of db.bugReports) {
+    if (!report.companyId) { report.companyId = seedCompany.id; changed = true; }
+    if (!Array.isArray(report.photos)) { report.photos = []; changed = true; }
   }
   if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
@@ -201,6 +206,25 @@ function mapLoad(r) {
     documents: r.documents || [],
     createdAt: r.created_at || r.createdAt,
     updatedAt: r.updated_at || r.updatedAt
+  };
+}
+function mapBugReport(r) {
+  return {
+    id: r.id,
+    companyId: r.company_id ?? r.companyId,
+    reporterUserId: r.reporter_user_id ?? r.reporterUserId ?? null,
+    reporterName: r.reporter_name || r.reporterName || '',
+    reporterRole: r.reporter_role || r.reporterRole || '',
+    page: r.page || '',
+    category: r.category || 'bug',
+    priority: r.priority || 'normal',
+    title: r.title || '',
+    description: r.description || '',
+    status: r.status || 'open',
+    resolutionNotes: r.resolution_notes || r.resolutionNotes || '',
+    photos: r.photos || [],
+    createdAt: r.created_at || r.createdAt,
+    closedAt: r.closed_at || r.closedAt || null
   };
 }
 
@@ -375,6 +399,23 @@ async function initPostgres() {
     documents JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS bug_reports (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+    reporter_user_id INTEGER,
+    reporter_name TEXT,
+    reporter_role TEXT,
+    page TEXT,
+    category TEXT,
+    priority TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolution_notes TEXT,
+    photos JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_at TIMESTAMPTZ
   );`;
   await pool.query(schema);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
@@ -605,6 +646,40 @@ const fileDb = {
     writeFileDb(db);
     return mapLoad(load);
   },
+  async getBugReports(companyId) { return readFileDb().bugReports.filter(r => !companyId || Number(r.companyId) === Number(companyId)).map(mapBugReport).sort((a, b) => Number(b.id) - Number(a.id)); },
+  async createBugReport(companyId, payload, user) {
+    const db = readFileDb();
+    const report = {
+      id: nextId(db.bugReports),
+      companyId,
+      reporterUserId: user?.id || null,
+      reporterName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : '',
+      reporterRole: user?.role || '',
+      page: payload.page || '',
+      category: payload.category || 'bug',
+      priority: payload.priority || 'normal',
+      title: payload.title,
+      description: payload.description || '',
+      status: 'open',
+      resolutionNotes: '',
+      photos: payload.photos || [],
+      createdAt: new Date().toISOString(),
+      closedAt: null
+    };
+    db.bugReports.push(report);
+    writeFileDb(db);
+    return mapBugReport(report);
+  },
+  async updateBugReport(companyId, id, status, resolutionNotes) {
+    const db = readFileDb();
+    const report = db.bugReports.find(r => Number(r.id) === Number(id) && (!companyId || Number(r.companyId) === Number(companyId)));
+    if (!report) throw new Error('Bug report not found.');
+    report.status = status || report.status;
+    report.resolutionNotes = resolutionNotes || report.resolutionNotes || '';
+    if (report.status === 'closed') report.closedAt = new Date().toISOString();
+    writeFileDb(db);
+    return mapBugReport(report);
+  },
   ...commonMethods
 };
 
@@ -725,6 +800,17 @@ const pgDb = {
     const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(existing.rows[0].status, `${document.type || 'document'} uploaded`, user)];
     const r = await pool.query('UPDATE loads SET documents=$3::jsonb, events=$4::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, id, JSON.stringify(docs), JSON.stringify(events)]);
     return mapLoad(r.rows[0]);
+  },
+  async getBugReports(companyId) { const r = await pool.query('SELECT * FROM bug_reports WHERE ($1::int IS NULL OR company_id=$1) ORDER BY id DESC', [companyId || null]); return r.rows.map(mapBugReport); },
+  async createBugReport(companyId, payload, user) {
+    const reporterName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : '';
+    const r = await pool.query(`INSERT INTO bug_reports (company_id,reporter_user_id,reporter_name,reporter_role,page,category,priority,title,description,status,resolution_notes,photos,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open','',$10::jsonb,NOW()) RETURNING *`, [companyId || null, user?.id || null, reporterName, user?.role || '', payload.page || '', payload.category || 'bug', payload.priority || 'normal', payload.title, payload.description || '', JSON.stringify(payload.photos || [])]);
+    return mapBugReport(r.rows[0]);
+  },
+  async updateBugReport(companyId, id, status, resolutionNotes) {
+    const r = await pool.query(`UPDATE bug_reports SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE id=$2 AND ($1::int IS NULL OR company_id=$1) RETURNING *`, [companyId || null, id, status, resolutionNotes || null]);
+    if (!r.rows[0]) throw new Error('Bug report not found.');
+    return mapBugReport(r.rows[0]);
   },
   ...commonMethods
 };

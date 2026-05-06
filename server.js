@@ -148,6 +148,16 @@ function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
 }
 const driverLoadStatuses = new Set(['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'exception']);
+function bugPayload(body, files = []) {
+  return {
+    page: body.page || '',
+    category: body.category || 'bug',
+    priority: body.priority || 'normal',
+    title: String(body.title || '').trim(),
+    description: body.description || '',
+    photos: files.map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }))
+  };
+}
 
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, superUserConfigured: await db.hasAdminSetup() });
@@ -474,6 +484,28 @@ app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverPro
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to upload document' });
+  }
+});
+
+app.get('/api/bug-reports', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  res.json(await db.getBugReports(req.companyId));
+});
+app.post('/api/bug-reports', auth, requireCompanyScope, upload.array('photos', 4), async (req, res) => {
+  try {
+    const payload = bugPayload(req.body, req.files || []);
+    if (!payload.title) return res.status(400).json({ error: 'Title is required' });
+    const report = await db.createBugReport(req.companyId, payload, req.sessionUser);
+    res.json(report);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to submit bug report' });
+  }
+});
+app.patch('/api/bug-reports/:id', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const report = await db.updateBugReport(req.companyId, Number(req.params.id), req.body.status, req.body.resolutionNotes);
+    res.json(report);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update bug report' });
   }
 });
 
