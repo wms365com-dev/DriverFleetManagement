@@ -46,6 +46,40 @@ const superName = () => env('SUPER_NAME', env('ADMIN_NAME', 'Platform Owner'));
 function ensureFileDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
+  normalizeFileDb();
+}
+function normalizeFileDb() {
+  let changed = false;
+  const db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  for (const [key, fallback] of Object.entries(seed)) {
+    if (!Array.isArray(db[key])) {
+      db[key] = Array.isArray(fallback) ? [...fallback] : fallback;
+      changed = true;
+    }
+  }
+  if (!db.companies.find(c => Number(c.id) === Number(seedCompany.id))) {
+    db.companies.unshift(seedCompany);
+    changed = true;
+  }
+  for (const user of db.users) {
+    if (user.role !== 'super_user' && !user.companyId) {
+      user.companyId = seedCompany.id;
+      changed = true;
+    }
+  }
+  for (const driver of db.drivers) {
+    if (!driver.companyId) { driver.companyId = seedCompany.id; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(driver, 'lastLat')) { driver.lastLat = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(driver, 'lastLng')) { driver.lastLng = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(driver, 'lastSeenAt')) { driver.lastSeenAt = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(driver, 'trackingEnabled')) { driver.trackingEnabled = false; changed = true; }
+  }
+  for (const key of ['vehicles', 'assignments', 'shifts', 'inspections', 'issues']) {
+    for (const item of db[key]) {
+      if (!item.companyId) { item.companyId = seedCompany.id; changed = true; }
+    }
+  }
+  if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
 function readFileDb() {
   ensureFileDb();
@@ -361,6 +395,8 @@ const fileDb = {
   async getAssignments(companyId) { return readFileDb().assignments.filter(a => Number(a.companyId) === Number(companyId)); },
   async assignVehicle(companyId, driverId, vehicleId) {
     const db = readFileDb();
+    if (!db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(driverId))) throw new Error('Driver not found.');
+    if (!db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(vehicleId))) throw new Error('Vehicle not found.');
     db.assignments = db.assignments.map(a => (Number(a.companyId) === Number(companyId) && Number(a.driverId) === Number(driverId) && a.active) ? { ...a, active: false, unassignedAt: new Date().toISOString() } : a);
     const assignment = { id: nextId(db.assignments), companyId, driverId, vehicleId, active: true, assignedAt: new Date().toISOString(), unassignedAt: null };
     db.assignments.push(assignment);
@@ -371,6 +407,10 @@ const fileDb = {
   async getActiveShiftForDriver(companyId, driverId) { return readFileDb().shifts.find(s => Number(s.companyId) === Number(companyId) && Number(s.driverId) === Number(driverId) && s.status === 'started') || null; },
   async startShift(companyId, driverId, vehicleId, startOdometer) {
     const db = readFileDb();
+    if (!driverId) throw new Error('Driver is required.');
+    if (!vehicleId) throw new Error('Vehicle is required.');
+    const assignment = db.assignments.find(a => Number(a.companyId) === Number(companyId) && Number(a.driverId) === Number(driverId) && Number(a.vehicleId) === Number(vehicleId) && a.active);
+    if (!assignment) throw new Error('Driver is not assigned to this vehicle.');
     if (db.shifts.find(s => Number(s.companyId) === Number(companyId) && Number(s.driverId) === Number(driverId) && s.status === 'started')) throw new Error('Driver already has an active shift.');
     const shift = { id: nextId(db.shifts), companyId, driverId, vehicleId, startTime: new Date().toISOString(), endTime: null, startOdometer, endOdometer: null, status: 'started' };
     db.shifts.push(shift);
@@ -390,6 +430,8 @@ const fileDb = {
   async getInspections(companyId) { return readFileDb().inspections.filter(i => Number(i.companyId) === Number(companyId)); },
   async createInspection(companyId, payload) {
     const db = readFileDb();
+    if (!db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(payload.driverId))) throw new Error('Driver not found.');
+    if (!db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Vehicle not found.');
     const inspection = { id: nextId(db.inspections), companyId, ...payload, inspectionTime: new Date().toISOString() };
     db.inspections.push(inspection);
     writeFileDb(db);
@@ -398,6 +440,8 @@ const fileDb = {
   async getIssues(companyId) { return readFileDb().issues.filter(i => Number(i.companyId) === Number(companyId)); },
   async createIssue(companyId, payload) {
     const db = readFileDb();
+    if (payload.driverId && !db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(payload.driverId))) throw new Error('Driver not found.');
+    if (payload.vehicleId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Vehicle not found.');
     const issue = { id: nextId(db.issues), companyId, ...payload, createdAt: new Date().toISOString(), resolutionNotes: payload.resolutionNotes || '', closedAt: null };
     db.issues.push(issue);
     writeFileDb(db);
@@ -478,15 +522,50 @@ const pgDb = {
   async getVehicles(companyId) { const r = await pool.query('SELECT * FROM vehicles WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapVehicle); },
   async createVehicle(companyId, data) { const r = await pool.query(`INSERT INTO vehicles (company_id,unit_number,plate_number,vin,make,model,year,type,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [companyId, data.unitNumber, data.plateNumber || '', data.vin || '', data.make || '', data.model || '', data.year || null, data.type || 'tractor', data.odometer || 0, data.status || 'active']); return mapVehicle(r.rows[0]); },
   async getAssignments(companyId) { const r = await pool.query('SELECT * FROM assignments WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapAssignment); },
-  async assignVehicle(companyId, driverId, vehicleId) { await pool.query('UPDATE assignments SET active=false, unassigned_at=NOW() WHERE company_id=$1 AND driver_id=$2 AND active=true', [companyId, driverId]); const r = await pool.query('INSERT INTO assignments (company_id,driver_id,vehicle_id,active,assigned_at) VALUES ($1,$2,$3,true,NOW()) RETURNING *', [companyId, driverId, vehicleId]); return mapAssignment(r.rows[0]); },
+  async assignVehicle(companyId, driverId, vehicleId) {
+    const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, driverId]);
+    if (!driver.rows[0]) throw new Error('Driver not found.');
+    const vehicle = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, vehicleId]);
+    if (!vehicle.rows[0]) throw new Error('Vehicle not found.');
+    await pool.query('UPDATE assignments SET active=false, unassigned_at=NOW() WHERE company_id=$1 AND driver_id=$2 AND active=true', [companyId, driverId]);
+    const r = await pool.query('INSERT INTO assignments (company_id,driver_id,vehicle_id,active,assigned_at) VALUES ($1,$2,$3,true,NOW()) RETURNING *', [companyId, driverId, vehicleId]);
+    return mapAssignment(r.rows[0]);
+  },
   async getShifts(companyId) { const r = await pool.query('SELECT * FROM shifts WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapShift); },
   async getActiveShiftForDriver(companyId, driverId) { const r = await pool.query('SELECT * FROM shifts WHERE company_id=$1 AND driver_id=$2 AND status=$3 ORDER BY id DESC LIMIT 1', [companyId, driverId, 'started']); return r.rows[0] ? mapShift(r.rows[0]) : null; },
-  async startShift(companyId, driverId, vehicleId, startOdometer) { const existing = await this.getActiveShiftForDriver(companyId, driverId); if (existing) throw new Error('Driver already has an active shift.'); const r = await pool.query('INSERT INTO shifts (company_id,driver_id,vehicle_id,start_time,start_odometer,status) VALUES ($1,$2,$3,NOW(),$4,$5) RETURNING *', [companyId, driverId, vehicleId, startOdometer || 0, 'started']); return mapShift(r.rows[0]); },
+  async startShift(companyId, driverId, vehicleId, startOdometer) {
+    if (!driverId) throw new Error('Driver is required.');
+    if (!vehicleId) throw new Error('Vehicle is required.');
+    const assignment = await pool.query('SELECT id FROM assignments WHERE company_id=$1 AND driver_id=$2 AND vehicle_id=$3 AND active=true LIMIT 1', [companyId, driverId, vehicleId]);
+    if (!assignment.rows[0]) throw new Error('Driver is not assigned to this vehicle.');
+    const existing = await this.getActiveShiftForDriver(companyId, driverId);
+    if (existing) throw new Error('Driver already has an active shift.');
+    const r = await pool.query('INSERT INTO shifts (company_id,driver_id,vehicle_id,start_time,start_odometer,status) VALUES ($1,$2,$3,NOW(),$4,$5) RETURNING *', [companyId, driverId, vehicleId, startOdometer || 0, 'started']);
+    return mapShift(r.rows[0]);
+  },
   async endShift(companyId, shiftId, endOdometer) { const r = await pool.query('UPDATE shifts SET end_time=NOW(), end_odometer=$3, status=$4 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, shiftId, endOdometer || null, 'completed']); if (!r.rows[0]) throw new Error('Shift not found.'); return mapShift(r.rows[0]); },
   async getInspections(companyId) { const r = await pool.query('SELECT * FROM inspections WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapInspection); },
-  async createInspection(companyId, payload) { const r = await pool.query(`INSERT INTO inspections (company_id,shift_id,driver_id,vehicle_id,inspection_time,odometer,overall_status,notes,item_results,photos) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.driverId, payload.vehicleId, payload.odometer || 0, payload.overallStatus || 'pass', payload.notes || '', JSON.stringify(payload.itemResults || []), JSON.stringify(payload.photos || [])]); return mapInspection(r.rows[0]); },
+  async createInspection(companyId, payload) {
+    const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, payload.driverId]);
+    if (!driver.rows[0]) throw new Error('Driver not found.');
+    const vehicle = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.vehicleId]);
+    if (!vehicle.rows[0]) throw new Error('Vehicle not found.');
+    const r = await pool.query(`INSERT INTO inspections (company_id,shift_id,driver_id,vehicle_id,inspection_time,odometer,overall_status,notes,item_results,photos) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.driverId, payload.vehicleId, payload.odometer || 0, payload.overallStatus || 'pass', payload.notes || '', JSON.stringify(payload.itemResults || []), JSON.stringify(payload.photos || [])]);
+    return mapInspection(r.rows[0]);
+  },
   async getIssues(companyId) { const r = await pool.query('SELECT * FROM issues WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapIssue); },
-  async createIssue(companyId, payload) { const r = await pool.query(`INSERT INTO issues (company_id,shift_id,inspection_id,driver_id,vehicle_id,category,severity,description,status,resolution_notes,created_at,photos) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.inspectionId || null, payload.driverId || null, payload.vehicleId || null, payload.category || 'other', payload.severity || 'low', payload.description || '', payload.status || 'open', payload.resolutionNotes || '', JSON.stringify(payload.photos || [])]); return mapIssue(r.rows[0]); },
+  async createIssue(companyId, payload) {
+    if (payload.driverId) {
+      const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, payload.driverId]);
+      if (!driver.rows[0]) throw new Error('Driver not found.');
+    }
+    if (payload.vehicleId) {
+      const vehicle = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.vehicleId]);
+      if (!vehicle.rows[0]) throw new Error('Vehicle not found.');
+    }
+    const r = await pool.query(`INSERT INTO issues (company_id,shift_id,inspection_id,driver_id,vehicle_id,category,severity,description,status,resolution_notes,created_at,photos) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.inspectionId || null, payload.driverId || null, payload.vehicleId || null, payload.category || 'other', payload.severity || 'low', payload.description || '', payload.status || 'open', payload.resolutionNotes || '', JSON.stringify(payload.photos || [])]);
+    return mapIssue(r.rows[0]);
+  },
   async updateIssue(companyId, id, status, resolutionNotes) { const r = await pool.query(`UPDATE issues SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE company_id=$1 AND id=$2 RETURNING *`, [companyId, id, status, resolutionNotes || null]); if (!r.rows[0]) throw new Error('Issue not found.'); return mapIssue(r.rows[0]); },
   async updateDriverLocation(companyId, driverId, lat, lng, trackingEnabled = true) { const r = await pool.query('UPDATE drivers SET last_lat=$3,last_lng=$4,last_seen_at=NOW(),tracking_enabled=$5 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, driverId, Number(lat), Number(lng), !!trackingEnabled]); if (!r.rows[0]) throw new Error('Driver not found.'); return mapDriver(r.rows[0]); },
   async updateVehicleStatus(companyId, vehicleId, status) { const r = await pool.query('UPDATE vehicles SET status=$3 WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, vehicleId, status]); return r.rows[0] ? mapVehicle(r.rows[0]) : null; },

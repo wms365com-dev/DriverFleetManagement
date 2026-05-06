@@ -65,6 +65,9 @@ function staffOnly(req, res, next) {
   if (!hasRole(req.sessionUser, ['super_user', 'admin', 'support_staff'])) return res.status(403).json({ error: 'Staff access required' });
   next();
 }
+function isDriver(req) {
+  return req.sessionUser?.role === 'driver';
+}
 function sanitizeUser(user) {
   return {
     id: user.id,
@@ -93,6 +96,31 @@ async function requireCompanyScope(req, res, next) {
   if (!companyId) return res.status(400).json({ error: 'No company selected' });
   req.companyId = companyId;
   next();
+}
+async function requireDriverProfile(req, res, next) {
+  if (!isDriver(req)) return next();
+  const driverId = Number(req.sessionUser.linkedDriverId || 0);
+  if (!driverId) return res.status(403).json({ error: 'Driver account is not linked to a driver record' });
+  const view = await db.getDriverView(req.companyId, driverId);
+  if (!view.driver) return res.status(403).json({ error: 'Driver profile was not found' });
+  req.driverProfile = view;
+  next();
+}
+function requireAssignedVehicle(req, vehicleId) {
+  if (!isDriver(req)) return;
+  const assignedVehicleId = Number(req.driverProfile?.vehicle?.id || 0);
+  if (!assignedVehicleId || Number(vehicleId) !== assignedVehicleId) {
+    throw new Error('Drivers can only work with their assigned vehicle.');
+  }
+}
+function parseInspectionItems(raw) {
+  const parsed = JSON.parse(raw || '[]');
+  if (!Array.isArray(parsed)) throw new Error('Inspection checklist is invalid.');
+  return parsed.map(item => ({
+    item: String(item.item || '').slice(0, 80),
+    result: ['pass', 'fail', 'na'].includes(String(item.result)) ? String(item.result) : 'pass',
+    notes: String(item.notes || '').slice(0, 500)
+  }));
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -166,8 +194,14 @@ app.post('/api/users', auth, companyAdminOnly, requireCompanyScope, async (req, 
   }
 });
 
-app.get('/api/dashboard', auth, requireCompanyScope, async (req, res) => res.json(await db.getDashboard(req.companyId)));
-app.get('/api/drivers', auth, requireCompanyScope, async (req, res) => res.json(await db.getDrivers(req.companyId)));
+app.get('/api/dashboard', auth, requireCompanyScope, async (req, res) => {
+  if (isDriver(req)) return res.status(403).json({ error: 'Staff access required' });
+  res.json(await db.getDashboard(req.companyId));
+});
+app.get('/api/drivers', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  if (isDriver(req)) return res.json([req.driverProfile.driver]);
+  res.json(await db.getDrivers(req.companyId));
+});
 app.post('/api/drivers', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const driver = await db.createDriver(req.companyId, {
@@ -188,7 +222,10 @@ app.post('/api/drivers', auth, staffOnly, requireCompanyScope, async (req, res) 
   }
 });
 
-app.get('/api/vehicles', auth, requireCompanyScope, async (req, res) => res.json(await db.getVehicles(req.companyId)));
+app.get('/api/vehicles', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  if (isDriver(req)) return res.json(req.driverProfile.vehicle ? [req.driverProfile.vehicle] : []);
+  res.json(await db.getVehicles(req.companyId));
+});
 app.post('/api/vehicles', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const vehicle = await db.createVehicle(req.companyId, {
@@ -208,7 +245,11 @@ app.post('/api/vehicles', auth, staffOnly, requireCompanyScope, async (req, res)
   }
 });
 
-app.get('/api/assignments', auth, requireCompanyScope, async (req, res) => res.json(await db.getAssignments(req.companyId)));
+app.get('/api/assignments', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  const assignments = await db.getAssignments(req.companyId);
+  if (isDriver(req)) return res.json(assignments.filter(a => Number(a.driverId) === Number(req.sessionUser.linkedDriverId)));
+  res.json(assignments);
+});
 app.post('/api/assignments', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const assignment = await db.assignVehicle(req.companyId, Number(req.body.driverId), Number(req.body.vehicleId));
@@ -218,18 +259,27 @@ app.post('/api/assignments', auth, staffOnly, requireCompanyScope, async (req, r
   }
 });
 
-app.get('/api/shifts', auth, requireCompanyScope, async (req, res) => res.json(await db.getShifts(req.companyId)));
-app.post('/api/shifts/start', auth, requireCompanyScope, async (req, res) => {
+app.get('/api/shifts', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  const shifts = await db.getShifts(req.companyId);
+  if (isDriver(req)) return res.json(shifts.filter(s => Number(s.driverId) === Number(req.sessionUser.linkedDriverId)));
+  res.json(shifts);
+});
+app.post('/api/shifts/start', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   try {
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
-    const shift = await db.startShift(req.companyId, driverId, Number(req.body.vehicleId), Number(req.body.startOdometer) || 0);
+    const vehicleId = Number(req.body.vehicleId);
+    requireAssignedVehicle(req, vehicleId);
+    const shift = await db.startShift(req.companyId, driverId, vehicleId, Number(req.body.startOdometer) || 0);
     res.json(shift);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
-app.post('/api/shifts/end', auth, requireCompanyScope, async (req, res) => {
+app.post('/api/shifts/end', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   try {
+    if (isDriver(req) && Number(req.driverProfile?.activeShift?.id || 0) !== Number(req.body.shiftId)) {
+      return res.status(403).json({ error: 'Drivers can only end their active shift.' });
+    }
     const shift = await db.endShift(req.companyId, Number(req.body.shiftId), Number(req.body.endOdometer) || 0);
     res.json(shift);
   } catch (error) {
@@ -238,7 +288,7 @@ app.post('/api/shifts/end', auth, requireCompanyScope, async (req, res) => {
 });
 
 
-app.post('/api/location', auth, requireCompanyScope, async (req, res) => {
+app.post('/api/location', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   try {
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
     if (!driverId) return res.status(400).json({ error: 'Driver is required' });
@@ -252,27 +302,34 @@ app.post('/api/location', auth, requireCompanyScope, async (req, res) => {
   }
 });
 
-app.get('/api/driver-view/:driverId', auth, requireCompanyScope, async (req, res) => {
+app.get('/api/driver-view/:driverId', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   const requestedDriverId = Number(req.params.driverId);
   const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : requestedDriverId;
   res.json(await db.getDriverView(req.companyId, driverId));
 });
 
-app.get('/api/inspections', auth, requireCompanyScope, async (req, res) => res.json(await db.getInspections(req.companyId)));
-app.post('/api/inspections', auth, requireCompanyScope, upload.array('photos', 8), async (req, res) => {
+app.get('/api/inspections', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  const inspections = await db.getInspections(req.companyId);
+  if (isDriver(req)) return res.json(inspections.filter(i => Number(i.driverId) === Number(req.sessionUser.linkedDriverId)));
+  res.json(inspections);
+});
+app.post('/api/inspections', auth, requireCompanyScope, requireDriverProfile, upload.array('photos', 8), async (req, res) => {
   try {
-    const itemResults = JSON.parse(req.body.itemResults || '[]');
-    const issueFlag = req.body.issueFlag === 'true';
+    const itemResults = parseInspectionItems(req.body.itemResults);
+    const hasFailedItem = itemResults.some(item => item.result === 'fail');
+    const issueFlag = req.body.issueFlag === 'true' || hasFailedItem || ['fail', 'pass_with_defects'].includes(req.body.overallStatus);
     const severity = req.body.severity || 'low';
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId);
+    const vehicleId = Number(req.body.vehicleId);
+    requireAssignedVehicle(req, vehicleId);
     const photos = (req.files || []).map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }));
 
     const inspection = await db.createInspection(req.companyId, {
       shiftId: Number(req.body.shiftId) || null,
       driverId,
-      vehicleId: Number(req.body.vehicleId),
+      vehicleId,
       odometer: Number(req.body.odometer) || 0,
-      overallStatus: req.body.overallStatus || 'pass',
+      overallStatus: hasFailedItem && req.body.overallStatus === 'pass' ? 'pass_with_defects' : (req.body.overallStatus || 'pass'),
       notes: req.body.notes || '',
       itemResults,
       photos
@@ -283,14 +340,14 @@ app.post('/api/inspections', auth, requireCompanyScope, upload.array('photos', 8
         shiftId: Number(req.body.shiftId) || null,
         inspectionId: inspection.id,
         driverId,
-        vehicleId: Number(req.body.vehicleId),
+        vehicleId,
         category: req.body.category || 'other',
         severity,
-        description: req.body.issueDescription || 'Inspection defect reported',
+        description: req.body.issueDescription || (hasFailedItem ? `Inspection defects: ${itemResults.filter(item => item.result === 'fail').map(item => item.item).join(', ')}` : 'Inspection defect reported'),
         status: 'open',
         photos
       });
-      await db.updateVehicleStatus(req.companyId, Number(req.body.vehicleId), severity === 'critical' ? 'out_of_service' : 'needs_review');
+      await db.updateVehicleStatus(req.companyId, vehicleId, severity === 'critical' || req.body.overallStatus === 'fail' ? 'out_of_service' : 'needs_review');
     }
 
     res.json(inspection);
@@ -299,15 +356,21 @@ app.post('/api/inspections', auth, requireCompanyScope, upload.array('photos', 8
   }
 });
 
-app.get('/api/issues', auth, requireCompanyScope, async (req, res) => res.json(await db.getIssues(req.companyId)));
-app.post('/api/issues', auth, requireCompanyScope, upload.array('photos', 8), async (req, res) => {
+app.get('/api/issues', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  const issues = await db.getIssues(req.companyId);
+  if (isDriver(req)) return res.json(issues.filter(i => Number(i.driverId) === Number(req.sessionUser.linkedDriverId)));
+  res.json(issues);
+});
+app.post('/api/issues', auth, requireCompanyScope, requireDriverProfile, upload.array('photos', 8), async (req, res) => {
   try {
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
+    const vehicleId = Number(req.body.vehicleId);
+    requireAssignedVehicle(req, vehicleId);
     const issue = await db.createIssue(req.companyId, {
       shiftId: Number(req.body.shiftId) || null,
       inspectionId: null,
       driverId,
-      vehicleId: Number(req.body.vehicleId),
+      vehicleId,
       category: req.body.category || 'other',
       severity: req.body.severity || 'low',
       description: req.body.description || '',

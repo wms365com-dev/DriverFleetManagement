@@ -95,19 +95,46 @@ async function api(url, options = {}) {
 }
 
 function roleLabel(role) {
+  if (role === 'support_staff') return 'dispatcher';
   return String(role || '').replaceAll('_', ' ');
 }
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+function attr(value) {
+  return esc(value);
+}
 function statusTag(value) {
-  return `<span class="tag ${String(value).toLowerCase().replace(/\s+/g, '_')}">${String(value).replaceAll('_', ' ')}</span>`;
+  const slug = String(value || '').toLowerCase().replace(/[^a-z0-9_ -]/g, '').replace(/\s+/g, '_');
+  return `<span class="tag ${attr(slug)}">${esc(String(value || '').replaceAll('_', ' '))}</span>`;
 }
 function byId(list, id) { return list.find(item => Number(item.id) === Number(id)); }
-function driverName(id) { const d = byId(state.drivers, id); return d ? `${d.firstName} ${d.lastName}` : '—'; }
-function vehicleName(id) { const v = byId(state.vehicles, id); return v ? v.unitNumber : '—'; }
-function fmt(ts) { return ts ? new Date(ts).toLocaleString() : '—'; }
+function driverName(id) { const d = byId(state.drivers, id); return d ? esc(`${d.firstName || ''} ${d.lastName || ''}`.trim()) : '&mdash;'; }
+function vehicleName(id) { const v = byId(state.vehicles, id); return v ? esc(v.unitNumber) : '&mdash;'; }
+function fmt(ts) { return ts ? esc(new Date(ts).toLocaleString()) : '&mdash;'; }
+function failedItems(inspection) {
+  return (inspection.itemResults || []).filter(item => item.result === 'fail');
+}
 function getCurrentCompany() { return byId(state.companies, state.selectedCompanyId) || null; }
 function isSuper() { return state.user?.role === 'super_user'; }
 function isAdminLike() { return ['super_user', 'admin'].includes(state.user?.role); }
 function isStaffLike() { return ['super_user', 'admin', 'support_staff'].includes(state.user?.role); }
+function isDispatcher() { return state.user?.role === 'support_staff'; }
+function workspaceName() {
+  if (state.user?.role === 'driver') return 'Driver App';
+  if (state.user?.role === 'support_staff') return 'Dispatch Console';
+  if (state.user?.role === 'admin') return 'Admin Console';
+  return 'Platform Console';
+}
+function canAccessView(view) {
+  return getNavItems().some(([allowedView]) => allowedView === view);
+}
 
 function setGpsState(status, message = '', extra = {}) {
   state.gpsStatus = status;
@@ -196,34 +223,46 @@ function renderLogin() {
 }
 
 function getNavItems() {
-  const items = [];
-  if (isSuper()) items.push(['companies', 'Companies']);
-  if (isAdminLike()) items.push(['users', 'Users']);
-  if (isStaffLike()) {
-    items.push(['dashboard', 'Dashboard']);
-    items.push(['map', 'Live Map']);
-    items.push(['drivers', 'Drivers']);
-    items.push(['vehicles', 'Vehicles']);
-    items.push(['assignments', 'Assignments']);
-    items.push(['shifts', 'Shifts']);
-    items.push(['inspections', 'Inspections']);
-    items.push(['issues', 'Issues']);
+  if (state.user?.role === 'driver') {
+    return [['driver', 'Driver Check-In']];
   }
-  items.push(['driver', state.user?.role === 'driver' ? 'My Mobile Workspace' : 'Driver Mobile']);
-  return items;
+  if (state.user?.role === 'support_staff') {
+    return [
+      ['dispatchHome', 'Dispatch Home'],
+      ['map', 'Live Map'],
+      ['shifts', 'Shift Monitor'],
+      ['inspections', 'Inspections'],
+      ['issues', 'Issue Queue']
+    ];
+  }
+  if (state.user?.role === 'admin') {
+    return [
+      ['adminHome', 'Admin Home'],
+      ['users', 'Users'],
+      ['drivers', 'Drivers'],
+      ['vehicles', 'Vehicles'],
+      ['assignments', 'Assignments']
+    ];
+  }
+  return [
+    ['platformHome', 'Platform Home'],
+    ['companies', 'Companies'],
+    ['users', 'Company Users']
+  ];
 }
 
 function getDefaultView() {
   if (state.user?.role === 'driver') return 'driver';
-  if (isSuper()) return 'companies';
-  if (isAdminLike()) return 'users';
-  return 'dashboard';
+  if (state.user?.role === 'support_staff') return 'dispatchHome';
+  if (state.user?.role === 'admin') return 'adminHome';
+  return 'platformHome';
 }
 
 function renderShell() {
   const navItems = getNavItems();
   const company = getCurrentCompany();
-  const activeView = state.activeView || getDefaultView();
+  const activeView = canAccessView(state.activeView) ? state.activeView : getDefaultView();
+  state.activeView = activeView;
   return `
   <div class="shell">
     <aside class="sidebar glass">
@@ -231,19 +270,19 @@ function renderShell() {
         <div class="brand-row">
           <div class="brand-mark small">DF</div>
           <div>
-            <h2>Fleet Portal</h2>
-            <p>${state.user.firstName || state.user.email}</p>
+            <h2>${workspaceName()}</h2>
+            <p>${esc(state.user.firstName || state.user.email)}</p>
           </div>
         </div>
         <div class="status-panel stack compact">
           <div>${statusTag(roleLabel(state.user.role))}</div>
-          ${state.selectedCompanyId ? `<div class="company-chip">${company?.name || 'Selected company'}</div>` : ''}
+          ${state.selectedCompanyId ? `<div class="company-chip">${esc(company?.name || 'Selected company')}</div>` : ''}
         </div>
         ${isSuper() ? `
           <div class="scope-picker">
             <label>Working company
               <select id="companyScopeSelect">
-                ${state.companies.map(c => `<option value="${c.id}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${c.name}</option>`).join('')}
+                ${state.companies.map(c => `<option value="${attr(c.id)}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
               </select>
             </label>
           </div>` : ''}
@@ -252,19 +291,19 @@ function renderShell() {
         ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${label}</button>`).join('')}
       </nav>
       <div class="stack compact">
-        <div class="tiny">Version 6 · Multi-company roles</div>
+        <div class="tiny">Version 6 &middot; Role-separated workspaces</div>
         <button id="logoutBtn" class="btn ghost">Log Out</button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar glass">
         <div>
-          <p class="eyebrow">Operations workspace</p>
+          <p class="eyebrow">${workspaceName()}</p>
           <h1>${getViewTitle(activeView)}</h1>
-          <p class="subtle">${company?.name || (state.user.role === 'super_user' ? 'Platform administration' : 'Company workspace')}</p>
+          <p class="subtle">${esc(company?.name || (state.user.role === 'super_user' ? 'Platform administration' : 'Company workspace'))}</p>
         </div>
         <div class="topbar-actions">
-          ${state.companies.length > 1 ? `<label class="topbar-switch">Company<select id="topbarCompanyScopeSelect">${state.companies.map(c => `<option value="${c.id}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${c.name}</option>`).join('')}</select></label>` : ''}
+          ${state.companies.length > 1 ? `<label class="topbar-switch">Company<select id="topbarCompanyScopeSelect">${state.companies.map(c => `<option value="${attr(c.id)}" ${Number(c.id) === Number(state.selectedCompanyId) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
           <div class="right-chip">${new Date().toLocaleDateString()}</div>
         </div>
       </header>
@@ -275,9 +314,12 @@ function renderShell() {
 
 function getViewTitle(view) {
   const titles = {
+    platformHome: 'Platform Home',
+    adminHome: 'Admin Home',
+    dispatchHome: 'Dispatch Home',
     companies: 'Company Setup',
     users: 'Users & Access',
-    dashboard: 'Operations Dashboard',
+    dashboard: 'Dispatch Dashboard',
     map: 'Live Driver Map',
     drivers: 'Driver Records',
     vehicles: 'Fleet Vehicles',
@@ -313,6 +355,10 @@ function bindLogin() {
 }
 
 function renderView(view) {
+  if (!canAccessView(view)) view = getDefaultView();
+  if (view === 'platformHome') return renderPlatformHome();
+  if (view === 'adminHome') return renderAdminHome();
+  if (view === 'dispatchHome') return renderDispatchHome();
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
@@ -327,12 +373,15 @@ function renderView(view) {
 }
 
 function bindShell() {
-  document.getElementById('viewContainer').innerHTML = renderView(state.activeView || getDefaultView());
-  bindView(state.activeView || getDefaultView());
+  const activeView = canAccessView(state.activeView) ? state.activeView : getDefaultView();
+  state.activeView = activeView;
+  document.getElementById('viewContainer').innerHTML = renderView(activeView);
+  bindView(activeView);
 
-  document.querySelectorAll('.nav-btn').forEach(btn => {
+  document.querySelectorAll('.nav-btn,[data-view-link]').forEach(btn => {
     btn.onclick = () => {
       state.activeView = btn.dataset.view;
+      if (btn.dataset.viewLink) state.activeView = btn.dataset.viewLink;
       render();
     };
   });
@@ -363,13 +412,84 @@ function bindShell() {
   };
 }
 
+function renderPlatformHome() {
+  return `
+    <div class="role-home">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Platform Control</h3><p>Company-level setup stays here.</p></div>
+        <div class="dashboard-grid compact-metrics">
+          <div class="metric-card glass"><span>Companies</span><strong>${state.companies.length}</strong></div>
+          <div class="metric-card glass"><span>Selected Company</span><strong>${getCurrentCompany() ? '1' : '0'}</strong></div>
+        </div>
+        <div class="quick-action-grid action-grid">
+          <button class="list-card action-card" data-view-link="companies"><strong>Companies</strong><span>Set up company accounts and initial admins.</span></button>
+          <button class="list-card action-card" data-view-link="users"><strong>Company Users</strong><span>Manage users for the selected company.</span></button>
+        </div>
+      </section>
+    </div>`;
+}
+
+function renderAdminHome() {
+  const activeAssignments = state.assignments.filter(a => a.active).length;
+  return `
+    <div class="role-home">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Admin Setup</h3><p>Maintain the people, vehicles, and assignments dispatch depends on.</p></div>
+        <div class="dashboard-grid compact-metrics">
+          <div class="metric-card glass"><span>Users</span><strong>${state.users.length}</strong></div>
+          <div class="metric-card glass"><span>Drivers</span><strong>${state.drivers.length}</strong></div>
+          <div class="metric-card glass"><span>Vehicles</span><strong>${state.vehicles.length}</strong></div>
+          <div class="metric-card glass"><span>Assignments</span><strong>${activeAssignments}</strong></div>
+        </div>
+        <div class="quick-action-grid action-grid">
+          <button class="list-card action-card" data-view-link="users"><strong>Users</strong><span>Create admin and dispatcher logins.</span></button>
+          <button class="list-card action-card" data-view-link="drivers"><strong>Drivers</strong><span>Create driver records and driver logins.</span></button>
+          <button class="list-card action-card" data-view-link="vehicles"><strong>Vehicles</strong><span>Maintain fleet units and status.</span></button>
+          <button class="list-card action-card" data-view-link="assignments"><strong>Assignments</strong><span>Assign one active vehicle per driver.</span></button>
+        </div>
+      </section>
+    </div>`;
+}
+
+function renderDispatchHome() {
+  const d = state.dashboard || { activeShifts: 0, inspectionsToday: 0, openIssues: 0, outOfService: 0, trackedDrivers: 0 };
+  const activeDrivers = state.shifts
+    .filter(s => s.status === 'started')
+    .map(s => {
+      const driver = byId(state.drivers, s.driverId);
+      return `<article class="list-card"><div><strong>${driverName(s.driverId)}</strong><p>${vehicleName(s.vehicleId)}</p></div><div>${statusTag('started')}</div></article>`;
+    }).join('');
+  return `
+    <div class="role-home">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Dispatch Monitor</h3><p>Live driver movement, shift status, inspections, and defects.</p></div>
+        <div class="dashboard-grid compact-metrics">
+          <div class="metric-card glass"><span>Active Shifts</span><strong>${d.activeShifts}</strong></div>
+          <div class="metric-card glass"><span>Tracked Drivers</span><strong>${d.trackedDrivers || 0}</strong></div>
+          <div class="metric-card glass"><span>Inspections Today</span><strong>${d.inspectionsToday}</strong></div>
+          <div class="metric-card glass"><span>Open Issues</span><strong>${d.openIssues}</strong></div>
+        </div>
+        <div class="quick-action-grid action-grid">
+          <button class="list-card action-card" data-view-link="map"><strong>Live Map</strong><span>Monitor driver GPS updates.</span></button>
+          <button class="list-card action-card" data-view-link="shifts"><strong>Shift Monitor</strong><span>Review check-ins and check-outs.</span></button>
+          <button class="list-card action-card" data-view-link="inspections"><strong>Inspections</strong><span>Review submitted vehicle inspections.</span></button>
+          <button class="list-card action-card" data-view-link="issues"><strong>Issue Queue</strong><span>Track open defects and closures.</span></button>
+        </div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Active Drivers</h3><p>${d.activeShifts} currently checked in</p></div>
+        <div class="list-grid">${activeDrivers || '<p class="tiny">No active shifts right now.</p>'}</div>
+      </section>
+    </div>`;
+}
+
 function renderCompanies() {
   return `
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Companies</h3><p>The super user controls company setup and ownership</p></div>
         <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th></tr></thead><tbody>
-          ${state.companies.map(c => `<tr><td>${c.name}</td><td>${c.code || '—'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
+          ${state.companies.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -395,19 +515,19 @@ function renderUsers() {
   return `
     <div class="two-col">
       <section class="panel glass">
-        <div class="panel-head"><h3>Company Users</h3><p>Admin and support staff accounts for this company</p></div>
+        <div class="panel-head"><h3>Company Users</h3><p>Admin and dispatcher accounts for this company</p></div>
         <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
-          ${state.users.map(u => `<tr><td>${u.firstName || ''} ${u.lastName || ''}</td><td>${u.email}</td><td>${statusTag(u.role)}</td></tr>`).join('') || '<tr><td colspan="3">No users yet</td></tr>'}
+          ${state.users.map(u => `<tr><td>${esc(`${u.firstName || ''} ${u.lastName || ''}`.trim())}</td><td>${esc(u.email)}</td><td>${statusTag(u.role)}</td></tr>`).join('') || '<tr><td colspan="3">No users yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
-        <div class="panel-head"><h3>Add User</h3><p>Create an admin or support staff login</p></div>
+        <div class="panel-head"><h3>Add User</h3><p>Create an admin or dispatcher login</p></div>
         <form id="userForm" class="stack compact">
           <div class="split"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
           <label>Email<input name="email" type="email" required /></label>
           <label>Password<input name="password" type="password" autocomplete="new-password" required /></label>
           <label>Role<select name="role">
-            <option value="support_staff">Support Staff</option>
+            <option value="support_staff">Dispatcher</option>
             <option value="admin">Admin</option>
           </select></label>
           <button class="btn primary" type="submit">Create User</button>
@@ -430,12 +550,12 @@ function renderDashboard() {
         const assignment = state.assignments.find(a => a.driverId === driver.id && a.active);
         const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
         const activeShift = state.shifts.find(s => s.driverId === driver.id && s.status === 'started');
-        return `<article class="list-card"><div><strong>${driver.firstName} ${driver.lastName}</strong><p>${vehicle ? vehicle.unitNumber : 'Unassigned'}</p></div><div>${activeShift ? statusTag('started') : statusTag(driver.status)}</div></article>`;
+        return `<article class="list-card"><div><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong><p>${vehicle ? esc(vehicle.unitNumber) : 'Unassigned'}</p></div><div>${activeShift ? statusTag('started') : statusTag(driver.status)}</div></article>`;
       }).join('') || '<p class="tiny">No drivers yet.</p>'}</div>
     </div>
     <div class="panel glass span-2">
       <div class="panel-head"><h3>Vehicle Condition</h3><p>Live status by unit</p></div>
-      <div class="list-grid">${state.vehicles.map(vehicle => `<article class="list-card"><div><strong>${vehicle.unitNumber}</strong><p>${vehicle.make} ${vehicle.model} · ${(vehicle.odometer || 0).toLocaleString()} km</p></div><div>${statusTag(vehicle.status)}</div></article>`).join('') || '<p class="tiny">No vehicles yet.</p>'}</div>
+      <div class="list-grid">${state.vehicles.map(vehicle => `<article class="list-card"><div><strong>${esc(vehicle.unitNumber)}</strong><p>${esc(`${vehicle.make || ''} ${vehicle.model || ''}`.trim())} &middot; ${(vehicle.odometer || 0).toLocaleString()} km</p></div><div>${statusTag(vehicle.status)}</div></article>`).join('') || '<p class="tiny">No vehicles yet.</p>'}</div>
     </div>
   </div>`;
 }
@@ -456,7 +576,7 @@ function renderMapView() {
     const rawTop = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
     const left = Math.max(8, Math.min(92, rawLeft));
     const top = Math.max(8, Math.min(92, rawTop));
-    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${driver.firstName} ${driver.lastName}" data-driver-marker="${driver.id}" style="left:${left}%;top:${top}%"><span>${driver.firstName[0] || 'D'}${driver.lastName[0] || ''}</span><small>${driver.firstName}</small></button>`;
+    return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''}" title="${attr(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}" data-driver-marker="${attr(driver.id)}" style="left:${left}%;top:${top}%"><span>${esc(driver.firstName?.[0] || 'D')}${esc(driver.lastName?.[0] || '')}</span><small>${esc(driver.firstName || '')}</small></button>`;
   }).join('');
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   return `
@@ -474,8 +594,8 @@ function renderMapView() {
           <div class="list-grid compact-list">
             ${state.drivers.map(driver => `
               <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
-                <div class="card-row"><strong>${driver.firstName} ${driver.lastName}</strong>${statusTag(driver.status)}</div>
-                <div class="tiny">${driver.email || driver.phone || 'No contact set'}</div>
+                <div class="card-row"><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong>${statusTag(driver.status)}</div>
+                <div class="tiny">${esc(driver.email || driver.phone || 'No contact set')}</div>
                 <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div><div class="tiny">${Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No coordinates yet'}</div>
               </button>`).join('')}
           </div>
@@ -484,7 +604,7 @@ function renderMapView() {
           <div class="panel-head"><h3>Selected Driver</h3><p>Location and assigned vehicle</p></div>
           ${selected ? `
             <div class="driver-location-card">
-              <div class="card-row"><strong>${selected.firstName} ${selected.lastName}</strong>${statusTag(selected.trackingEnabled ? 'tracked' : 'ready')}</div>
+              <div class="card-row"><strong>${esc(`${selected.firstName || ''} ${selected.lastName || ''}`.trim())}</strong>${statusTag(selected.trackingEnabled ? 'tracked' : 'ready')}</div>
               <div class="tiny">Coordinates</div>
               <div class="coords">${Number(selected.lastLat).toFixed(5)}, ${Number(selected.lastLng).toFixed(5)}</div>
               <div class="tiny">${selected.lastSeenAt ? `Last update ${fmt(selected.lastSeenAt)}` : 'No update yet'}</div>
@@ -501,7 +621,7 @@ function renderDrivers() {
       <section class="panel glass">
         <div class="panel-head"><h3>Drivers</h3><p>Drivers can log in, start shifts, inspect vehicles, and report issues</p></div>
         <div class="table-wrap"><table><thead><tr><th>Name</th><th>License</th><th>Status</th></tr></thead><tbody>
-          ${state.drivers.map(d => `<tr><td>${d.firstName} ${d.lastName}<div class="tiny">${d.email || ''}</div></td><td>${d.licenseClass || '—'} · ${d.licenseNumber || '—'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
+          ${state.drivers.map(d => `<tr><td>${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}<div class="tiny">${esc(d.email || '')}</div></td><td>${esc(d.licenseClass || '') || '&mdash;'} &middot; ${esc(d.licenseNumber || '') || '&mdash;'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -528,7 +648,7 @@ function renderVehicles() {
       <section class="panel glass">
         <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list for this company</p></div>
         <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody>
-          ${state.vehicles.map(v => `<tr><td>${v.unitNumber}<div class="tiny">${v.plateNumber || ''}</div></td><td>${v.make || ''} ${v.model || ''} · ${v.year || ''}</td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
+          ${state.vehicles.map(v => `<tr><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -557,8 +677,8 @@ function renderAssignments() {
       <section class="panel glass">
         <div class="panel-head"><h3>Assign Vehicle</h3><p>Choose a driver and vehicle</p></div>
         <form id="assignmentForm" class="stack compact">
-          <label>Driver<select name="driverId">${state.drivers.map(d => `<option value="${d.id}">${d.firstName} ${d.lastName}</option>`).join('')}</select></label>
-          <label>Vehicle<select name="vehicleId">${state.vehicles.map(v => `<option value="${v.id}">${v.unitNumber}</option>`).join('')}</select></label>
+          <label>Driver<select name="driverId">${state.drivers.map(d => `<option value="${attr(d.id)}">${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
+          <label>Vehicle<select name="vehicleId">${state.vehicles.map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)}</option>`).join('')}</select></label>
           <button class="btn primary" type="submit">Assign</button>
         </form>
       </section>
@@ -579,7 +699,10 @@ function renderInspections() {
   return `
     <section class="panel glass">
       <div class="panel-head"><h3>Inspection Feed</h3><p>Submitted pre-trip inspections</p></div>
-      <div class="inspection-grid">${state.inspections.map(i => `<article class="inspection-card"><div class="panel-head"><strong>#${i.id} · ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} · ${fmt(i.inspectionTime)}</p><p>${i.notes || 'No notes.'}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${p.url}" alt="inspection photo" />`).join('')}</div></article>`).join('') || '<p>No inspections yet.</p>'}</div>
+      <div class="inspection-grid">${state.inspections.map(i => {
+        const failed = failedItems(i);
+        return `<article class="inspection-card"><div class="panel-head"><strong>#${esc(i.id)} &middot; ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.inspectionTime)}</p><p>${esc(i.notes || 'No notes.')}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}${failed.length ? ` &middot; Failed: ${failed.map(item => esc(item.item)).join(', ')}` : ''}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${attr(p.url)}" alt="inspection photo" />`).join('')}</div></article>`;
+      }).join('') || '<p>No inspections yet.</p>'}</div>
     </section>`;
 }
 
@@ -587,7 +710,7 @@ function renderIssues() {
   return `
     <section class="panel glass">
       <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
-      <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} · ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${i.description}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${p.url}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${i.id}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
+      <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${attr(i.id)}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
     </section>`;
 }
 
@@ -604,7 +727,7 @@ function renderDriverWorkspace() {
     <section class="mobile-stage">
       ${state.user.role !== 'driver' ? `
       <div class="driver-picker glass">
-        <label>Preview Driver Mobile<select id="driverPicker">${state.drivers.map(d => `<option value="${d.id}" ${d.id === driverId ? 'selected' : ''}>${d.firstName} ${d.lastName}</option>`).join('')}</select></label>
+        <label>Preview Driver Mobile<select id="driverPicker">${state.drivers.map(d => `<option value="${attr(d.id)}" ${d.id === driverId ? 'selected' : ''}>${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
       </div>` : ''}
       <div class="phone-frame">
         <div class="phone-notch"></div>
@@ -612,12 +735,12 @@ function renderDriverWorkspace() {
           <div class="mobile-header">
             <div>
               <p class="eyebrow">Driver workspace</p>
-              <h2>${driver.firstName || ''} ${driver.lastName || ''}</h2>
+              <h2>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</h2>
             </div>
             ${activeShift ? statusTag('started') : statusTag('ready')}
           </div>
           <div class="mobile-card primary-card">
-            <div><p class="tiny">Assigned vehicle</p><strong>${vehicle ? vehicle.unitNumber : 'Not assigned'}</strong></div>
+            <div><p class="tiny">Assigned vehicle</p><strong>${vehicle ? esc(vehicle.unitNumber) : 'Not assigned'}</strong></div>
             <div><p class="tiny">Vehicle status</p>${vehicle ? statusTag(vehicle.status) : '—'}</div>
           </div>
           <div class="mobile-actions">
@@ -625,17 +748,17 @@ function renderDriverWorkspace() {
               <div class="mobile-mini-card gps-status-card" id="gpsStatusCard" data-status="${driver.lastSeenAt ? 'tracking' : 'idle'}"><span>GPS Status</span><strong id="gpsStatusTitle">${driver.lastSeenAt ? 'Tracking active' : 'Not tracking'}</strong><small id="gpsStatusMessage">${driver.lastSeenAt ? 'Driver location is updating.' : 'Tap Allow GPS to start location tracking.'}</small><small id="gpsStatusMeta">${driver.lastSeenAt ? fmt(driver.lastSeenAt) : ''}</small><button class="btn primary small-btn" type="button" id="allowGpsBtn">Allow GPS</button></div>
               <div class="mobile-mini-card"><span>Open issues</span><strong>${state.issues.filter(i => Number(i.driverId) === Number(driver.id) && i.status !== 'closed').length}</strong><small>Need attention</small></div>
             </div>
-            ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${vehicle.id}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : ''}
-            ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${activeShift.id}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit" id="endShiftBtn">End Shift</button></form>` : ''}
+            ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : ''}
+            ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${attr(activeShift.id)}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit" id="endShiftBtn">End Shift</button></form>` : ''}
           </div>
           ${vehicle ? `
             <form id="inspectionForm" class="mobile-card stack compact" enctype="multipart/form-data">
               <h3>Pre-trip Inspection</h3>
-              <input type="hidden" name="vehicleId" value="${vehicle.id}" />
-              <input type="hidden" name="shiftId" value="${activeShift?.id || ''}" />
+              <input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" />
+              <input type="hidden" name="shiftId" value="${attr(activeShift?.id || '')}" />
               <label>Current odometer<input type="number" name="odometer" required /></label>
               <label>Overall result<select name="overallStatus"><option value="pass">Pass</option><option value="pass_with_defects">Pass With Defects</option><option value="fail">Fail</option></select></label>
-              <div class="checklist">${inspectionItems.map(item => `<div class="check-row"><span>${item}</span><div><label><input type="radio" name="${item}" value="pass" checked />P</label><label><input type="radio" name="${item}" value="fail" />F</label><label><input type="radio" name="${item}" value="na" />N/A</label></div><input name="note_${item}" placeholder="Notes" /></div>`).join('')}</div>
+              <div class="checklist">${inspectionItems.map(item => `<div class="check-row"><span>${esc(item)}</span><div><label><input type="radio" name="${attr(item)}" value="pass" checked />P</label><label><input type="radio" name="${attr(item)}" value="fail" />F</label><label><input type="radio" name="${attr(item)}" value="na" />N/A</label></div><input name="note_${attr(item)}" placeholder="Notes" /></div>`).join('')}</div>
               <label>General notes<textarea name="notes"></textarea></label>
               <label class="inline-check"><input type="checkbox" name="issueFlag" value="true" /> Create issue from inspection</label>
               <div class="split"><label>Category<select name="category"><option value="mechanical">Mechanical</option><option value="lights">Lights</option><option value="tires">Tires</option><option value="body_damage">Body Damage</option><option value="safety">Safety</option><option value="other">Other</option></select></label><label>Severity<select name="severity"><option value="low">Low</option><option value="medium">Medium</option><option value="critical">Critical</option></select></label></div>
@@ -646,8 +769,8 @@ function renderDriverWorkspace() {
             </form>
             <form id="quickIssueForm" class="mobile-card stack compact" enctype="multipart/form-data">
               <h3>Quick Issue Report</h3>
-              <input type="hidden" name="vehicleId" value="${vehicle.id}" />
-              <input type="hidden" name="shiftId" value="${activeShift?.id || ''}" />
+              <input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" />
+              <input type="hidden" name="shiftId" value="${attr(activeShift?.id || '')}" />
               <div class="split"><label>Category<select name="category"><option value="mechanical">Mechanical</option><option value="lights">Lights</option><option value="tires">Tires</option><option value="body_damage">Body Damage</option><option value="safety">Safety</option><option value="other">Other</option></select></label><label>Severity<select name="severity"><option value="low">Low</option><option value="medium">Medium</option><option value="critical">Critical</option></select></label></div>
               <label>Description<textarea name="description" required></textarea></label>
               <label>Photos<input class="photo-input" data-preview="issuePreview" type="file" name="photos" multiple accept="image/*" capture="environment" /></label>
@@ -917,7 +1040,7 @@ async function loadEverything() {
 
   const requests = [
     isAdminLike() ? api('/api/users') : Promise.resolve([]),
-    api('/api/dashboard'),
+    isStaffLike() ? api('/api/dashboard') : Promise.resolve(null),
     api('/api/drivers'),
     api('/api/vehicles'),
     api('/api/assignments'),
