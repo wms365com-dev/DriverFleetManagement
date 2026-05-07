@@ -236,6 +236,29 @@ function trackingLabel(driver) {
 function driverInitials(driver) {
   return `${driver?.firstName?.[0] || 'D'}${driver?.lastName?.[0] || ''}`.toUpperCase();
 }
+function driverFullName(driver) {
+  return `${driver?.firstName || ''} ${driver?.lastName || ''}`.trim() || 'Unnamed Driver';
+}
+function driverStats(driver) {
+  const driverId = Number(driver?.id);
+  const loads = state.loads.filter(load => Number(load.driverId) === driverId);
+  const activeLoad = loads.find(load => !['delivered', 'cancelled'].includes(load.status)) || null;
+  const delivered = loads.filter(load => load.status === 'delivered').length;
+  const inspections = state.inspections.filter(item => Number(item.driverId) === driverId);
+  const failedInspections = inspections.filter(item => item.overallStatus === 'fail').length;
+  const openIssues = state.issues.filter(item => Number(item.driverId) === driverId && item.status !== 'closed').length;
+  const shifts = state.shifts.filter(item => Number(item.driverId) === driverId);
+  const activeShift = shifts.find(item => item.status === 'started') || null;
+  const assignment = state.assignments.find(item => Number(item.driverId) === driverId && item.active) || null;
+  const safetyScore = Math.max(0, 100 - (openIssues * 12) - (failedInspections * 18));
+  const complianceScore = inspections.length ? Math.round(((inspections.length - failedInspections) / inspections.length) * 100) : 100;
+  const latestActivity = [
+    ...loads.map(load => ({ at: loadLastActivity(load), label: `Load ${load.loadNumber}`, detail: loadStatusLabel(load.status) })),
+    ...inspections.map(item => ({ at: item.inspectionTime, label: `Inspection #${item.id}`, detail: item.overallStatus || 'submitted' })),
+    ...state.issues.filter(item => Number(item.driverId) === driverId).map(item => ({ at: item.createdAt, label: `Defect #${item.id}`, detail: item.status || item.severity || 'open' }))
+  ].filter(item => item.at).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 5);
+  return { loads, activeLoad, delivered, inspections, failedInspections, openIssues, shifts, activeShift, assignment, safetyScore, complianceScore, latestActivity };
+}
 function powerUnits() {
   return state.vehicles.filter(v => (v.category || 'power_unit') === 'power_unit');
 }
@@ -935,32 +958,114 @@ function renderMapView() {
 }
 
 function renderDrivers() {
+  const selected = byId(state.drivers, state.selectedDriverId) || state.drivers[0] || null;
   return `
-    <div class="two-col">
-      <section class="panel glass">
-        <div class="panel-head"><h3>Drivers</h3><p>Drivers can log in, start shifts, inspect vehicles, and report issues</p></div>
-        ${listSearch('driverList', 'Search driver, email, phone, or license')}
-        <div class="table-wrap"><table><thead><tr><th>Name</th><th>License</th><th>Status</th></tr></thead><tbody data-filter-list="driverList">
-          ${state.drivers.map(d => `<tr data-search="${searchableText(d.firstName, d.lastName, d.email, d.phone, d.licenseClass, d.licenseNumber, d.status)}"><td>${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}<div class="tiny">${esc(d.email || d.phone || '')}</div></td><td>${esc(d.licenseClass || '') || '&mdash;'} &middot; ${esc(d.licenseNumber || '') || '&mdash;'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
-          <tr data-filter-empty hidden><td colspan="3">No matching drivers.</td></tr>
-        </tbody></table></div>
+    <div class="driver-console">
+      <section class="panel glass driver-profile-panel">
+        <div class="panel-head"><h3>Driver Profile</h3><p>Summary view for safety, compliance, assigned work, and activity.</p></div>
+        ${selected ? renderDriverProfile(selected) : emptyState('No drivers yet', 'Create the first driver from the form on the right.')}
       </section>
-      <section class="panel glass">
-        <div class="panel-head"><h3>Add Driver</h3><p>Create a driver record and optional driver login</p></div>
-        <form id="driverForm" class="stack compact">
-          <label>First name<input name="firstName" required /></label>
-          <label>Last name<input name="lastName" required /></label>
-          <label>Email<input name="email" type="email" /></label>
-          <label>Phone<input name="phone" /></label>
-          <label>License number<input name="licenseNumber" /></label>
-          <div class="split"><label>Class<input name="licenseClass" value="AZ" /></label><label>Expiry<input name="licenseExpiry" type="date" /></label></div>
-          <label>Status<select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
-          <label class="inline-check"><input type="checkbox" name="createLogin" value="true" /> Create driver login</label>
-          <label>Driver password<input name="userPassword" type="password" autocomplete="new-password" /></label>
-          <button class="btn primary" type="submit">Save Driver</button>
-        </form>
-      </section>
+      <aside class="stack">
+        <section class="panel glass">
+          <div class="panel-head"><h3>Drivers</h3><p>${state.drivers.length} driver records</p></div>
+          ${listSearch('driverList', 'Search driver, email, phone, or license')}
+          <div class="driver-roster" data-filter-list="driverList">
+            ${state.drivers.map(driver => renderDriverRosterCard(driver, selected)).join('') || '<p class="tiny">No drivers yet.</p>'}
+            <div data-filter-empty hidden>${emptyState('No matching drivers', 'Try another name, email, phone, license, or status.')}</div>
+          </div>
+        </section>
+        <section class="panel glass">
+          <div class="panel-head"><h3>Add Driver</h3><p>Create a driver record and optional driver login</p></div>
+          <form id="driverForm" class="stack compact">
+            <div class="split"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
+            <label>Email<input name="email" type="email" /></label>
+            <label>Phone<input name="phone" /></label>
+            <label>License number<input name="licenseNumber" /></label>
+            <div class="split"><label>Class<input name="licenseClass" value="AZ" /></label><label>Expiry<input name="licenseExpiry" type="date" /></label></div>
+            <label>Status<select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+            <label class="inline-check"><input type="checkbox" name="createLogin" value="true" /> Create driver login</label>
+            <label>Driver password<input name="userPassword" type="password" autocomplete="new-password" /></label>
+            <button class="btn primary" type="submit">Save Driver</button>
+          </form>
+        </section>
+      </aside>
     </div>`;
+}
+
+function renderDriverProfile(driver) {
+  const stats = driverStats(driver);
+  const assignedVehicle = stats.assignment ? byId(state.vehicles, stats.assignment.vehicleId) : null;
+  const trailer = stats.assignment ? byId(state.vehicles, stats.assignment.trailerId) : null;
+  const tracked = hasUsableCoords(driver);
+  return `
+    <div class="driver-profile">
+      <div class="driver-hero-card">
+        <div class="driver-photo">${esc(driverInitials(driver))}</div>
+        <div class="driver-identity-grid">
+          <div><span>Driver ID</span><strong>${esc(driver.id)}</strong></div>
+          <div><span>Home Terminal</span><strong>${esc(getCurrentCompany()?.name || 'Company terminal')}</strong></div>
+          <div><span>License</span><strong>${esc([driver.licenseClass, driver.licenseNumber].filter(Boolean).join(' - ') || 'Not set')}</strong></div>
+          <div><span>Tenure</span><strong>${driver.createdAt ? esc(fmt(driver.createdAt)) : 'Current roster'}</strong></div>
+          <div><span>Groups</span><strong>${esc(roleLabel('driver'))}</strong></div>
+          <div><span>Driver App</span><strong>${driver.email ? 'Login ready' : 'No email set'}</strong></div>
+        </div>
+        <div class="driver-profile-title">
+          <strong>${esc(driverFullName(driver))}</strong>
+          <span>${statusTag(driver.status)} ${statusTag(trackingLabel(driver))}</span>
+        </div>
+      </div>
+      <div class="driver-tabs" aria-label="Driver views">
+        <span>Live</span><span>History</span><span class="active">Summary</span>
+      </div>
+      <div class="driver-insight-grid">
+        <article class="driver-insight-card">
+          <div class="card-row"><strong>Hours of Service</strong><span>${stats.activeShift ? 'On duty' : 'Available'}</span></div>
+          <div class="driver-rings">
+            <span><b>${stats.activeShift ? 'ON' : 'OFF'}</b><small>Shift</small></span>
+            <span><b>${stats.loads.length}</b><small>Loads</small></span>
+            <span><b>${stats.delivered}</b><small>Delivered</small></span>
+          </div>
+          <p class="tiny">Assigned unit: ${assignedVehicle ? esc(assignedVehicle.unitNumber) : 'Unassigned'}${trailer ? ` · ${esc(trailer.unitNumber)}` : ''}</p>
+        </article>
+        <article class="driver-insight-card">
+          <div class="card-row"><strong>Compliance</strong><span>Last 30 days</span></div>
+          <div class="score-donut" style="--score:${stats.complianceScore}"><b>${stats.complianceScore}</b><small>%</small></div>
+          <p class="tiny">${stats.inspections.length} inspections · ${stats.failedInspections} failed</p>
+        </article>
+        <article class="driver-insight-card">
+          <div class="card-row"><strong>Safety Score</strong><span>${stats.openIssues ? 'Review' : 'Clear'}</span></div>
+          <div class="score-line"><span style="width:${stats.safetyScore}%"></span></div>
+          <strong>${stats.safetyScore}/100</strong>
+          <p class="tiny">${stats.openIssues} open defect${stats.openIssues === 1 ? '' : 's'} impacting score</p>
+        </article>
+      </div>
+      <div class="driver-summary-grid">
+        <article class="driver-summary-card">
+          <strong>Current Work</strong>
+          ${stats.activeLoad ? `<p>${esc(stats.activeLoad.loadNumber)} · ${esc(loadStatusLabel(stats.activeLoad.status))}</p><span>${esc(stats.activeLoad.pickupName || stats.activeLoad.pickupAddress || 'Pickup')} to ${esc(stats.activeLoad.deliveryName || stats.activeLoad.deliveryAddress || 'Delivery')}</span>` : '<p>No active load assigned.</p><span>Create or assign a load from Dispatch / Loads.</span>'}
+        </article>
+        <article class="driver-summary-card">
+          <strong>Location</strong>
+          <p>${tracked ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No GPS yet'}</p>
+          <span>${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : 'Driver must allow GPS from mobile.'}</span>
+        </article>
+        <article class="driver-summary-card span-wide">
+          <strong>Recent Activity</strong>
+          <div class="driver-activity-list">
+            ${stats.latestActivity.map(item => `<div><span>${esc(item.label)}</span><strong>${esc(item.detail)}</strong><small>${fmt(item.at)}</small></div>`).join('') || '<p class="tiny">No activity recorded yet.</p>'}
+          </div>
+        </article>
+      </div>
+    </div>`;
+}
+
+function renderDriverRosterCard(driver, selected) {
+  const stats = driverStats(driver);
+  return `<button class="driver-roster-card ${Number(selected?.id) === Number(driver.id) ? 'selected' : ''}" data-driver-focus="${attr(driver.id)}" data-search="${searchableText(driver.firstName, driver.lastName, driver.email, driver.phone, driver.licenseClass, driver.licenseNumber, driver.status, trackingLabel(driver))}">
+    <span class="driver-avatar">${esc(driverInitials(driver))}</span>
+    <span><strong>${esc(driverFullName(driver))}</strong><small>${esc(driver.email || driver.phone || 'No contact set')}</small></span>
+    <span class="driver-roster-meta">${statusTag(driver.status)}<small>${stats.activeLoad ? esc(stats.activeLoad.loadNumber) : 'No active load'}</small></span>
+  </button>`;
 }
 
 function renderVehicles() {
@@ -1525,6 +1630,10 @@ function bindView(view) {
   if (view === 'drivers') {
     const form = document.getElementById('driverForm');
     if (form) form.onsubmit = submitJsonForm('/api/drivers');
+    document.querySelectorAll('[data-driver-focus]').forEach(btn => btn.onclick = () => {
+      state.selectedDriverId = Number(btn.dataset.driverFocus);
+      render();
+    });
   }
   if (view === 'vehicles') {
     const form = document.getElementById('vehicleForm');
