@@ -118,8 +118,8 @@ function requireAssignedVehicle(req, vehicleId) {
   }
 }
 function companyCodeFromName(name) {
-  const base = String(name || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 12) || 'COMPANY';
-  return `${base}-${Date.now().toString(36).toUpperCase()}`.slice(0, 20);
+  const base = String(name || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 4).padEnd(4, 'X') || 'COMP';
+  return `${base}${Date.now().toString(36).toUpperCase()}`.slice(0, 8);
 }
 function signupPayload(body) {
   return {
@@ -638,7 +638,6 @@ app.get('/api/loads', auth, requireCompanyScope, requireDriverProfile, async (re
 app.post('/api/loads', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const payload = loadPayload(req.body);
-    if (!payload.loadNumber) return res.status(400).json({ error: 'Load number is required' });
     const load = await db.createLoad(req.companyId, payload, req.sessionUser);
     res.json(load);
   } catch (error) {

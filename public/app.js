@@ -588,7 +588,7 @@ function renderShell() {
         </div>
         <div class="status-panel stack compact">
           <div>${statusTag(roleLabel(state.user.role))}</div>
-          ${state.selectedCompanyId ? `<div class="company-chip">${esc(company?.name || 'Selected company')}</div>` : ''}
+          ${state.selectedCompanyId ? `<div class="company-chip">${esc(company?.name || 'Selected company')}${company?.code ? ` · ID ${esc(company.code)}` : ''}</div>` : ''}
         </div>
         ${isSuper() ? `
           <div class="scope-picker">
@@ -856,7 +856,7 @@ function renderCompanies() {
       <section class="panel glass">
         <div class="panel-head"><h3>Companies</h3><p>${pendingCount} pending approval${pendingCount === 1 ? '' : 's'}</p></div>
         ${listSearch('companyList', 'Search company or code')}
-        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Company ID</th><th>Status</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
           ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status)}"><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td><td>${c.status === 'pending' ? `<button class="btn primary small-btn approve-company" data-company-id="${attr(c.id)}">Approve</button>` : c.status === 'active' ? '<span class="tiny">Approved</span>' : `<button class="btn ghost small-btn approve-company" data-company-id="${attr(c.id)}">Reactivate</button>`}</td></tr>`).join('') || '<tr><td colspan="4">No companies yet</td></tr>'}
           <tr data-filter-empty hidden><td colspan="4">No matching companies.</td></tr>
         </tbody></table></div>
@@ -865,7 +865,7 @@ function renderCompanies() {
         <div class="panel-head"><h3>Create Company</h3><p>Set up a company and its first admin user</p></div>
         <form id="companyForm" class="stack compact">
           <label>Company name<input name="name" required /></label>
-          <label>Company code<input name="code" placeholder="Optional short code" /></label>
+          <label>Company ID<input name="code" placeholder="Optional, e.g. UPS00001" maxlength="8" /></label>
           <label>Status<select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
           <hr class="divider" />
           <label>Initial admin email<input name="adminEmail" type="email" required /></label>
@@ -1224,7 +1224,7 @@ function renderLoads() {
         <div class="panel-head"><h3>Create Load</h3><p>Use saved customers, locations, and driver assignments to reduce typing.</p></div>
         <form id="loadForm" class="stack compact">
           <div class="form-step"><span>1</span><strong>Load Details</strong></div>
-          <div class="split"><label>Load #<input name="loadNumber" required placeholder="Required" /></label><label>Reference<input name="referenceNumber" /></label></div>
+          <div class="split"><label>Tracking / Load #<input name="loadNumber" placeholder="Auto: ${attr(getCurrentCompany()?.code || 'COMPANY')}-${new Date().getFullYear()}-000001" /></label><label>Reference<input name="referenceNumber" /></label></div>
           <div class="split"><label>Customer<input name="customer" list="customerNames" placeholder="Start typing saved customer" /></label><label>Broker<input name="broker" /></label></div>
           <div class="form-step"><span>2</span><strong>Stops</strong></div>
           <label>Saved pickup location<select data-location-select="pickup"><option value="">Choose saved pickup</option>${pickupLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
@@ -1524,6 +1524,7 @@ function renderSettings() {
         <div class="panel-head"><h3>Company Settings</h3><p>Operational setup for this company workspace.</p></div>
         <div class="list-grid">
           <article class="list-card"><strong>Company</strong><p class="tiny">${esc(getCurrentCompany()?.name || 'No company selected')}</p></article>
+          <article class="list-card"><strong>Company ID</strong><p class="tiny">${esc(getCurrentCompany()?.code || 'Assigned when company is created')}</p></article>
           <article class="list-card"><strong>Equipment Types</strong><p class="tiny">${equipmentTypes.length} power unit and trailer/equipment options available.</p></article>
           <article class="list-card"><strong>Inspection Checklist</strong><p class="tiny">${inspectionItems.length} inspection items active.</p></article>
           <article class="list-card"><strong>Address Autocomplete</strong><p class="tiny">Saved company addresses are active. Geoapify is enabled when GEOAPIFY_API_KEY is configured in Railway.</p></article>

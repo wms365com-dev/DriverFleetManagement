@@ -11,8 +11,26 @@ const usePostgres = !!process.env.DATABASE_URL;
 function makeTrackingToken() {
   return crypto.randomBytes(18).toString('hex');
 }
+function normalizeCompanyCode(value) {
+  return String(value || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'COMPANY';
+}
+function generatedCompanyCode(name, id) {
+  const base = normalizeCompanyCode(name).slice(0, 4).padEnd(4, 'X');
+  return `${base}${String(id).padStart(4, '0')}`.slice(0, 8);
+}
+function loadNumberFromCompanyCode(code, sequence) {
+  return `${normalizeCompanyCode(code)}-${new Date().getFullYear()}-${String(sequence).padStart(6, '0')}`;
+}
+function ensureCompanyLoadNumber(company, loads, requested = '') {
+  const code = normalizeCompanyCode(company?.code || company?.name || 'COMPANY');
+  const manual = String(requested || '').trim().toUpperCase();
+  if (manual) return manual.startsWith(`${code}-`) ? manual : `${code}-${manual}`;
+  const year = new Date().getFullYear();
+  const sequence = loads.filter(load => Number(load.companyId ?? load.company_id) === Number(company.id) && String((load.loadNumber ?? load.load_number) || '').includes(`-${year}-`)).length + 1;
+  return loadNumberFromCompanyCode(code, sequence);
+}
 
-const seedCompany = { id: 1, name: 'Demo Fleet', code: 'DEMO', status: 'active', createdAt: new Date().toISOString() };
+const seedCompany = { id: 1, name: 'Demo Fleet', code: 'DEMO0001', status: 'active', createdAt: new Date().toISOString() };
 const seed = {
   companies: [seedCompany],
   users: [],
@@ -68,6 +86,18 @@ function normalizeFileDb() {
   if (!db.companies.find(c => Number(c.id) === Number(seedCompany.id))) {
     db.companies.unshift(seedCompany);
     changed = true;
+  }
+  const usedCompanyCodes = new Set();
+  for (const company of db.companies) {
+    const previous = normalizeCompanyCode(company.code || company.name);
+    let code = previous;
+    let suffix = 1;
+    while (usedCompanyCodes.has(code)) {
+      code = `${previous.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
+      suffix += 1;
+    }
+    if (company.code !== code) { company.code = code; changed = true; }
+    usedCompanyCodes.add(code);
   }
   for (const user of db.users) {
     if (user.role !== 'super_user' && !user.companyId) {
@@ -548,6 +578,19 @@ async function initPostgres() {
       await pool.query(`INSERT INTO issues (id,company_id,shift_id,inspection_id,driver_id,vehicle_id,category,severity,description,status,resolution_notes,created_at,closed_at,photos) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)`, [i.id,i.companyId,i.shiftId,i.inspectionId,i.driverId,i.vehicleId,i.category,i.severity,i.description,i.status,i.resolutionNotes,i.createdAt,i.closedAt,JSON.stringify(i.photos)]);
     }
   }
+  const companiesForCodes = (await pool.query('SELECT id,name,code FROM companies ORDER BY id')).rows;
+  const usedCompanyCodes = new Set();
+  for (const company of companiesForCodes) {
+    const base = normalizeCompanyCode(company.code || generatedCompanyCode(company.name, company.id));
+    let code = base;
+    let suffix = 1;
+    while (usedCompanyCodes.has(code)) {
+      code = `${base.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
+      suffix += 1;
+    }
+    if (company.code !== code) await pool.query('UPDATE companies SET code=$2 WHERE id=$1', [company.id, code]);
+    usedCompanyCodes.add(code);
+  }
   await ensureSuperUser();
 }
 
@@ -642,7 +685,14 @@ const fileDb = {
   async getCompanies() { return readFileDb().companies; },
   async createCompany(data) {
     const db = readFileDb();
-    const company = { id: nextId(db.companies), name: data.name, code: (data.code || data.name).toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 20), status: data.status || 'active', createdAt: new Date().toISOString() };
+    const id = nextId(db.companies);
+    let code = normalizeCompanyCode(data.code || generatedCompanyCode(data.name, id));
+    let suffix = 1;
+    while (db.companies.some(company => normalizeCompanyCode(company.code) === code)) {
+      code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
+      suffix += 1;
+    }
+    const company = { id, name: data.name, code, status: data.status || 'active', createdAt: new Date().toISOString() };
     db.companies.push(company);
     writeFileDb(db);
     return company;
@@ -837,7 +887,9 @@ const fileDb = {
     if (payload.vehicleId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Power unit not found.');
     if (payload.trailerId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.trailerId))) throw new Error('Trailer/equipment not found.');
     const status = payload.driverId ? 'assigned' : 'new';
-    const load = { id: nextId(db.loads), companyId, ...payload, publicTrackingToken: makeTrackingToken(), status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const company = db.companies.find(c => Number(c.id) === Number(companyId));
+    const loadNumber = ensureCompanyLoadNumber(company, db.loads, payload.loadNumber);
+    const load = { id: nextId(db.loads), companyId, ...payload, loadNumber, publicTrackingToken: makeTrackingToken(), status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     db.loads.push(load);
     writeFileDb(db);
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - '), lastUsedAt: new Date().toISOString() });
@@ -913,8 +965,15 @@ const pgDb = {
   async hasAdminSetup() { const r = await pool.query(`SELECT COUNT(*) FROM users WHERE role='super_user' AND is_active=true`); return Number(r.rows[0].count) > 0; },
   async getCompanies() { const r = await pool.query('SELECT * FROM companies ORDER BY name'); return r.rows.map(mapCompany); },
   async createCompany(data) {
-    const code = (data.code || data.name).toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 20);
-    const r = await pool.query(`INSERT INTO companies (name,code,status) VALUES ($1,$2,$3) RETURNING *`, [data.name, code, data.status || 'active']);
+    const idRow = await pool.query(`SELECT nextval(pg_get_serial_sequence('companies','id')) AS id`);
+    const id = Number(idRow.rows[0].id);
+    let code = normalizeCompanyCode(data.code || generatedCompanyCode(data.name, id));
+    let suffix = 1;
+    while ((await pool.query('SELECT id FROM companies WHERE code=$1 LIMIT 1', [code])).rows[0]) {
+      code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
+      suffix += 1;
+    }
+    const r = await pool.query(`INSERT INTO companies (id,name,code,status) VALUES ($1,$2,$3,$4) RETURNING *`, [id, data.name, code, data.status || 'active']);
     return mapCompany(r.rows[0]);
   },
   async updateCompanyStatus(id, status) {
@@ -1056,7 +1115,10 @@ const pgDb = {
     if (payload.trailerId) { const trailer = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.trailerId]); if (!trailer.rows[0]) throw new Error('Trailer/equipment not found.'); }
     const status = payload.driverId ? 'assigned' : 'new';
     const events = [commonMethods.buildLoadEvent(status, 'Load created', user)];
-    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,public_tracking_token,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,makeTrackingToken(),status,JSON.stringify(events)]);
+    const companyResult = await pool.query('SELECT * FROM companies WHERE id=$1', [companyId]);
+    const loadCount = await pool.query('SELECT load_number, company_id FROM loads WHERE company_id=$1', [companyId]);
+    const loadNumber = ensureCompanyLoadNumber(mapCompany(companyResult.rows[0] || { id: companyId, code: 'COMPANY' }), loadCount.rows.map(mapLoad), payload.loadNumber);
+    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,public_tracking_token,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,makeTrackingToken(),status,JSON.stringify(events)]);
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - ') });
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - ') });
     return mapLoad(r.rows[0]);
