@@ -95,6 +95,40 @@ const dockTypeOptions = [
   ['forklift', 'Forklift On Site'],
   ['unknown', 'Confirm With Site']
 ];
+const loadTypeOptions = [
+  ['dry_van', 'Dry Van / Enclosed Trailer'],
+  ['container', 'Container / Port Drayage'],
+  ['flatbed', 'Flatbed / Open Deck'],
+  ['straight_truck', 'Straight Truck / Box Truck'],
+  ['sprinter_van', 'Sprinter Van / Cargo Van']
+];
+const loadCompatibilityRules = {
+  container: {
+    power: ['tractor', 'day_cab', 'sleeper_cab'],
+    trailer: ['container_chassis'],
+    summary: 'Requires a tractor and container chassis. Capture terminal, container, seal, last free day, and empty return.'
+  },
+  flatbed: {
+    power: ['tractor', 'day_cab', 'sleeper_cab', 'hotshot_truck', 'pickup_truck'],
+    trailer: ['flatbed', 'step_deck', 'double_drop', 'conestoga', 'lowboy', 'gooseneck', 'curtain_side'],
+    summary: 'Requires open-deck capable equipment. Capture dimensions, tarps, securement, and loading method.'
+  },
+  dry_van: {
+    power: ['tractor', 'day_cab', 'sleeper_cab', 'straight_truck', 'box_truck'],
+    trailer: ['dry_van', 'reefer', 'liftgate_trailer'],
+    summary: 'Requires enclosed equipment. Capture dock/tailgate, pallet count, cartons, weight, and seal if applicable.'
+  },
+  straight_truck: {
+    power: ['straight_truck', 'box_truck'],
+    trailer: [],
+    summary: 'Requires straight truck or box truck. Capture liftgate, pallet jack, inside delivery, and access restrictions.'
+  },
+  sprinter_van: {
+    power: ['sprinter_van', 'cargo_van'],
+    trailer: [],
+    summary: 'Requires sprinter or cargo van. Capture piece count, max dimensions, floor loading, and appointment windows.'
+  }
+};
 const viewIcons = {
   platformHome: 'grid',
   adminHome: 'grid',
@@ -249,6 +283,18 @@ function byId(list, id) { return list.find(item => Number(item.id) === Number(id
 function driverName(id) { const d = byId(state.drivers, id); return d ? esc(`${d.firstName || ''} ${d.lastName || ''}`.trim()) : '&mdash;'; }
 function vehicleName(id) { const v = byId(state.vehicles, id); return v ? esc(v.unitNumber) : '&mdash;'; }
 function fmt(ts) { return ts ? esc(new Date(ts).toLocaleString()) : '&mdash;'; }
+function loadTypeLabel(type) {
+  return loadTypeOptions.find(([value]) => value === type)?.[1] || String(type || 'dry_van').replaceAll('_', ' ');
+}
+function vehicleCompatibleWithLoad(vehicle, loadType, slot = 'power') {
+  if (!vehicle) return false;
+  const rule = loadCompatibilityRules[loadType || 'dry_van'] || loadCompatibilityRules.dry_van;
+  const allowed = slot === 'trailer' ? rule.trailer : rule.power;
+  return allowed.includes(vehicle.type);
+}
+function loadTypeRuleSummary(type) {
+  return (loadCompatibilityRules[type || 'dry_van'] || loadCompatibilityRules.dry_van).summary;
+}
 function failedItems(inspection) {
   return (inspection.itemResults || []).filter(item => item.result === 'fail');
 }
@@ -1251,13 +1297,46 @@ function renderShifts() {
     </section>`;
 }
 
+function renderLoadTypeFields() {
+  return `
+    <div class="load-type-panels">
+      <div class="load-type-panel" data-load-type-panel="container">
+        <div class="split"><label>Container #<input name="containerNumber" placeholder="MSCU1234567" /></label><label>Container size<select name="containerSize"><option value="">Select size</option><option>20 ft</option><option>40 ft</option><option>40 ft HC</option><option>45 ft</option></select></label></div>
+        <div class="split"><label>Port / terminal<input name="portTerminal" placeholder="Terminal name" /></label><label>Return terminal<input name="returnTerminal" placeholder="Empty return location" /></label></div>
+        <div class="split"><label>Seal #<input name="sealNumber" /></label><label>Last free day<input name="lastFreeDay" type="date" /></label></div>
+        <label>Container notes<textarea name="containerNotes" placeholder="Pickup number, steamship line, customs hold, genset, overweight permit, empty return instructions"></textarea></label>
+      </div>
+      <div class="load-type-panel" data-load-type-panel="flatbed">
+        <div class="split"><label>Freight dimensions<input name="freightDimensions" placeholder="L x W x H" /></label><label>Loading method<select name="loadingMethod"><option value="">Select</option><option>Forklift</option><option>Crane</option><option>Loader</option><option>Customer load/unload</option></select></label></div>
+        <div class="split"><label>Tarp required<select name="tarpRequired"><option value="">Select</option><option>No</option><option>Yes</option><option>Partial tarp</option></select></label><label>Securement<input name="securement" placeholder="Straps, chains, edge protectors" /></label></div>
+        <label>Flatbed notes<textarea name="flatbedNotes" placeholder="Oversize, permits, load value, dunnage, blocking/bracing, PPE, site access"></textarea></label>
+      </div>
+      <div class="load-type-panel" data-load-type-panel="dry_van">
+        <div class="split"><label>Pallet count<input name="palletCount" type="number" /></label><label>Cartons<input name="cartonCount" type="number" /></label></div>
+        <div class="split"><label>Seal required<select name="sealRequired"><option value="">Select</option><option>No</option><option>Yes</option></select></label><label>Temperature<input name="temperatureRequirement" placeholder="Ambient, protect from freeze" /></label></div>
+        <label>Dry van notes<textarea name="dryVanNotes" placeholder="Floor loaded, clamp truck, food grade, appointment rules, lumper, driver assist"></textarea></label>
+      </div>
+      <div class="load-type-panel" data-load-type-panel="straight_truck">
+        <div class="split"><label>Liftgate needed<select name="liftgateRequired"><option value="">Select</option><option>No</option><option>Yes</option></select></label><label>Pallet jack needed<select name="palletJackRequired"><option value="">Select</option><option>No</option><option>Yes</option></select></label></div>
+        <div class="split"><label>Access limits<input name="accessLimits" placeholder="Low bridge, dock height, residential" /></label><label>Inside delivery<select name="insideDelivery"><option value="">Select</option><option>No</option><option>Yes</option></select></label></div>
+        <label>Straight truck notes<textarea name="straightTruckNotes" placeholder="Tailgate area, stairs, elevator, call ahead, delivery room"></textarea></label>
+      </div>
+      <div class="load-type-panel" data-load-type-panel="sprinter_van">
+        <div class="split"><label>Max piece dimensions<input name="maxPieceDimensions" placeholder="L x W x H" /></label><label>Floor loaded<select name="floorLoaded"><option value="">Select</option><option>No</option><option>Yes</option></select></label></div>
+        <div class="split"><label>Piece count<input name="vanPieceCount" type="number" /></label><label>Expedite service<select name="expediteService"><option value="">Select</option><option>Standard</option><option>Direct drive</option><option>Hot shot</option></select></label></div>
+        <label>Van notes<textarea name="sprinterNotes" placeholder="Dock restriction, hand unload, fragile freight, no trailer access"></textarea></label>
+      </div>
+    </div>`;
+}
+
 function renderLoads() {
-  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
-  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
   const customers = uniqueCustomers();
   const pickupLocations = addressSuggestions('pickup');
   const deliveryLocations = addressSuggestions('delivery');
   const dockOptions = dockTypeOptions.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('');
+  const loadTypeSelectOptions = loadTypeOptions.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('');
   return `
     <div class="two-col">
       <section class="panel glass">
@@ -1274,6 +1353,9 @@ function renderLoads() {
           <div class="form-step"><span>1</span><strong>Load Details</strong></div>
           <div class="split"><label>Tracking / Load #<input name="loadNumber" placeholder="Auto: ${attr(getCurrentCompany()?.code || 'COMPANY')}-${new Date().getFullYear()}-000001" /></label><label>Reference<input name="referenceNumber" /></label></div>
           <div class="split"><label>Customer<input name="customer" list="customerNames" placeholder="Start typing saved customer" /></label><label>Broker<input name="broker" /></label></div>
+          <label>Load type<select name="loadType" id="loadTypeSelect">${loadTypeSelectOptions}</select></label>
+          <div class="compatibility-note" id="loadTypeSummary">${esc(loadTypeRuleSummary('dry_van'))}</div>
+          ${renderLoadTypeFields()}
           <div class="form-step"><span>2</span><strong>Stops</strong></div>
           <label>Saved pickup location<select data-location-select="pickup"><option value="">Choose saved pickup</option>${pickupLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
           <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
@@ -1295,6 +1377,7 @@ function renderLoads() {
           <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}">${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
           <label>Power unit<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
           <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
+          <div class="compatibility-note" id="equipmentCompatibilityHint">Choose a load type to see compatible equipment.</div>
           <label>Notes<textarea name="notes"></textarea></label>
           <button class="btn primary" type="submit">Create Load</button>
           <datalist id="customerNames">${customers.map(name => `<option value="${attr(name)}"></option>`).join('')}</datalist>
@@ -1323,12 +1406,14 @@ function renderLoadCard(load, dispatcher = false) {
   const pickupDetails = stopSiteDetails(load, 'pickup');
   const deliveryDetails = stopSiteDetails(load, 'delivery');
   const trackingUrl = publicTrackingUrl(load);
-  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
-    <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')}</p></div>${loadStatusTag(load)}</div>
+  const detailText = load.loadDetails ? Object.entries(load.loadDetails).filter(([, value]) => value).slice(0, 4).map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1')}: ${value}`).join(' · ') : '';
+  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.loadType, detailText, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
+    <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
+    ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
     ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
     ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>` : ''}
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
@@ -2291,6 +2376,43 @@ function applyLocationToLoadForm(form, item, type) {
   if (siteNotesInput && !siteNotesInput.value) siteNotesInput.value = item.dockNotes || item.notes || '';
 }
 
+function refreshLoadTypeControls(form) {
+  if (!form) return;
+  const loadType = form.elements.loadType?.value || 'dry_van';
+  const rule = loadCompatibilityRules[loadType] || loadCompatibilityRules.dry_van;
+  document.querySelectorAll('[data-load-type-panel]').forEach(panel => {
+    panel.hidden = panel.dataset.loadTypePanel !== loadType;
+  });
+  const summary = document.getElementById('loadTypeSummary');
+  if (summary) summary.textContent = loadTypeRuleSummary(loadType);
+  const selectedPower = byId(state.vehicles, form.elements.vehicleId?.value);
+  const selectedTrailer = byId(state.vehicles, form.elements.trailerId?.value);
+  const powerSelect = form.elements.vehicleId;
+  const trailerSelect = form.elements.trailerId;
+  if (powerSelect) {
+    [...powerSelect.options].forEach(option => {
+      if (!option.value) return;
+      const vehicle = byId(state.vehicles, option.value);
+      option.disabled = vehicle ? !vehicleCompatibleWithLoad(vehicle, loadType, 'power') : false;
+    });
+    if (selectedPower && !vehicleCompatibleWithLoad(selectedPower, loadType, 'power')) powerSelect.value = '';
+  }
+  if (trailerSelect) {
+    [...trailerSelect.options].forEach(option => {
+      if (!option.value) return;
+      const vehicle = byId(state.vehicles, option.value);
+      option.disabled = vehicle ? !vehicleCompatibleWithLoad(vehicle, loadType, 'trailer') : false;
+    });
+    if (!rule.trailer.length || (selectedTrailer && !vehicleCompatibleWithLoad(selectedTrailer, loadType, 'trailer'))) trailerSelect.value = '';
+  }
+  const hint = document.getElementById('equipmentCompatibilityHint');
+  if (hint) {
+    const powerLabels = rule.power.map(typeLabel).join(', ');
+    const trailerLabels = rule.trailer.length ? rule.trailer.map(typeLabel).join(', ') : 'No trailer should be assigned';
+    hint.textContent = `Compatible power: ${powerLabels}. Trailer/equipment: ${trailerLabels}.`;
+  }
+}
+
 function bindLoadEntryHelpers() {
   const form = document.getElementById('loadForm');
   if (!form) return;
@@ -2305,8 +2427,13 @@ function bindLoadEntryHelpers() {
     driverSelect.onchange = () => {
       const assignment = activeAssignmentForDriver(driverSelect.value);
       if (assignment && form.elements.vehicleId && !form.elements.vehicleId.value) form.elements.vehicleId.value = assignment.vehicleId || '';
+      refreshLoadTypeControls(form);
     };
   }
+  form.elements.loadType?.addEventListener('change', () => refreshLoadTypeControls(form));
+  form.elements.vehicleId?.addEventListener('change', () => refreshLoadTypeControls(form));
+  form.elements.trailerId?.addEventListener('change', () => refreshLoadTypeControls(form));
+  refreshLoadTypeControls(form);
 }
 
 async function lookupExternalAddresses(input, type) {

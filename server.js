@@ -159,9 +159,70 @@ function parseInspectionItems(raw) {
     notes: String(item.notes || '').slice(0, 500)
   }));
 }
+const loadCompatibilityRules = {
+  container: {
+    power: ['tractor', 'day_cab', 'sleeper_cab'],
+    trailer: ['container_chassis'],
+    label: 'Container / port drayage'
+  },
+  flatbed: {
+    power: ['tractor', 'day_cab', 'sleeper_cab', 'hotshot_truck', 'pickup_truck'],
+    trailer: ['flatbed', 'step_deck', 'double_drop', 'conestoga', 'lowboy', 'gooseneck', 'curtain_side'],
+    label: 'Flatbed / open deck'
+  },
+  dry_van: {
+    power: ['tractor', 'day_cab', 'sleeper_cab', 'straight_truck', 'box_truck'],
+    trailer: ['dry_van', 'reefer', 'liftgate_trailer'],
+    label: 'Dry van / enclosed'
+  },
+  straight_truck: {
+    power: ['straight_truck', 'box_truck'],
+    trailer: [],
+    label: 'Straight truck / box truck'
+  },
+  sprinter_van: {
+    power: ['sprinter_van', 'cargo_van'],
+    trailer: [],
+    label: 'Sprinter van / cargo van'
+  }
+};
+function loadDetailPayload(body) {
+  return {
+    containerNumber: String(body.containerNumber || '').trim(),
+    containerSize: String(body.containerSize || '').trim(),
+    portTerminal: String(body.portTerminal || '').trim(),
+    returnTerminal: String(body.returnTerminal || '').trim(),
+    sealNumber: String(body.sealNumber || '').trim(),
+    lastFreeDay: String(body.lastFreeDay || '').trim(),
+    containerNotes: String(body.containerNotes || '').trim(),
+    freightDimensions: String(body.freightDimensions || '').trim(),
+    loadingMethod: String(body.loadingMethod || '').trim(),
+    tarpRequired: String(body.tarpRequired || '').trim(),
+    securement: String(body.securement || '').trim(),
+    flatbedNotes: String(body.flatbedNotes || '').trim(),
+    palletCount: String(body.palletCount || '').trim(),
+    cartonCount: String(body.cartonCount || '').trim(),
+    sealRequired: String(body.sealRequired || '').trim(),
+    temperatureRequirement: String(body.temperatureRequirement || '').trim(),
+    dryVanNotes: String(body.dryVanNotes || '').trim(),
+    liftgateRequired: String(body.liftgateRequired || '').trim(),
+    palletJackRequired: String(body.palletJackRequired || '').trim(),
+    accessLimits: String(body.accessLimits || '').trim(),
+    insideDelivery: String(body.insideDelivery || '').trim(),
+    straightTruckNotes: String(body.straightTruckNotes || '').trim(),
+    maxPieceDimensions: String(body.maxPieceDimensions || '').trim(),
+    floorLoaded: String(body.floorLoaded || '').trim(),
+    vanPieceCount: String(body.vanPieceCount || '').trim(),
+    expediteService: String(body.expediteService || '').trim(),
+    sprinterNotes: String(body.sprinterNotes || '').trim()
+  };
+}
 function loadPayload(body) {
+  const loadType = loadCompatibilityRules[body.loadType] ? body.loadType : 'dry_van';
   return {
     loadNumber: String(body.loadNumber || '').trim(),
+    loadType,
+    loadDetails: loadDetailPayload(body),
     customer: body.customer || '',
     broker: body.broker || '',
     referenceNumber: body.referenceNumber || '',
@@ -191,10 +252,30 @@ function loadPayload(body) {
     trailerId: Number(body.trailerId) || null
   };
 }
+function equipmentName(vehicle) {
+  return vehicle ? `${vehicle.unitNumber || 'Unit'} (${String(vehicle.type || '').replaceAll('_', ' ')})` : 'Unassigned equipment';
+}
+async function validateLoadCompatibility(companyId, payload) {
+  const rule = loadCompatibilityRules[payload.loadType] || loadCompatibilityRules.dry_van;
+  const vehicles = await db.getVehicles(companyId);
+  const power = payload.vehicleId ? vehicles.find(v => Number(v.id) === Number(payload.vehicleId)) : null;
+  const trailer = payload.trailerId ? vehicles.find(v => Number(v.id) === Number(payload.trailerId)) : null;
+  if (power && !rule.power.includes(power.type)) {
+    throw new Error(`${equipmentName(power)} is not compatible with ${rule.label} loads.`);
+  }
+  if (trailer && !rule.trailer.includes(trailer.type)) {
+    throw new Error(`${equipmentName(trailer)} is not compatible with ${rule.label} loads.`);
+  }
+  if (!rule.trailer.length && trailer) {
+    throw new Error(`${rule.label} loads should not have trailer equipment assigned.`);
+  }
+}
 function publicLoadPayload(load) {
   if (!load) return null;
   return {
     loadNumber: load.loadNumber,
+    loadType: load.loadType,
+    loadDetails: load.loadDetails || {},
     customer: load.customer,
     referenceNumber: load.referenceNumber,
     pickupName: load.pickupName,
@@ -230,6 +311,8 @@ function demoPublicLoad(token) {
   const deliveredAt = '2026-05-04T14:00:00-04:00';
   return {
     loadNumber: 'DEMO0001-2026-000777',
+    loadType: 'straight_truck',
+    loadDetails: { palletCount: '2', cartonCount: '30', liftgateRequired: 'No' },
     customer: 'Demo Customer',
     referenceNumber: 'ORLANDO-35',
     pickupName: 'Dispatcher365 Demo Warehouse',
@@ -787,6 +870,7 @@ app.get('/api/loads', auth, requireCompanyScope, requireDriverProfile, async (re
 app.post('/api/loads', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const payload = loadPayload(req.body);
+    await validateLoadCompatibility(req.companyId, payload);
     const load = await db.createLoad(req.companyId, payload, req.sessionUser);
     res.json(load);
   } catch (error) {

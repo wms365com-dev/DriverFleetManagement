@@ -135,6 +135,10 @@ textarea { min-height: 88px; resize: vertical; }
 .data-entry-hints { display:grid; gap:10px; margin-top:14px; }
 .data-entry-hints article { display:grid; gap:4px; padding:12px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.03); }
 .data-entry-hints span { color:var(--muted); font-size:12px; }
+.load-type-panels { display:grid; gap:10px; }
+.load-type-panel { display:grid; gap:10px; padding:12px; border:1px solid rgba(90,166,232,.2); border-radius:12px; background:rgba(90,166,232,.055); }
+.load-type-panel[hidden] { display:none; }
+.compatibility-note { padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:rgba(169,184,205,.07); color:#c8d4e3; font-size:12px; line-height:1.45; }
 .address-chip-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .address-chip { display:inline-flex; align-items:center; gap:8px; max-width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.04); color:var(--text); font-size:12px; }
 .address-chip small { color:var(--muted); text-transform:uppercase; font-size:10px; }

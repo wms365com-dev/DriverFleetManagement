@@ -237,6 +237,8 @@ function mapLoad(r) {
     id: r.id,
     companyId: r.company_id ?? r.companyId,
     loadNumber: r.load_number || r.loadNumber,
+    loadType: r.load_type || r.loadType || 'dry_van',
+    loadDetails: r.load_details || r.loadDetails || {},
     customer: r.customer || '',
     broker: r.broker || '',
     referenceNumber: r.reference_number || r.referenceNumber || '',
@@ -461,6 +463,8 @@ async function initPostgres() {
     id SERIAL PRIMARY KEY,
     company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     load_number TEXT NOT NULL,
+    load_type TEXT NOT NULL DEFAULT 'dry_van',
+    load_details JSONB NOT NULL DEFAULT '{}'::jsonb,
     customer TEXT,
     broker TEXT,
     reference_number TEXT,
@@ -544,6 +548,8 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_hours TEXT`);
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_dock_type TEXT`);
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_site_notes TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS load_type TEXT NOT NULL DEFAULT 'dry_van'`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS load_details JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS public_tracking_token TEXT`);
   await pool.query(`UPDATE loads SET public_tracking_token = md5(id::text || random()::text || clock_timestamp()::text) WHERE public_tracking_token IS NULL OR public_tracking_token = ''`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS loads_public_tracking_token_unique ON loads (public_tracking_token)`);
@@ -1118,7 +1124,7 @@ const pgDb = {
     const companyResult = await pool.query('SELECT * FROM companies WHERE id=$1', [companyId]);
     const loadCount = await pool.query('SELECT load_number, company_id FROM loads WHERE company_id=$1', [companyId]);
     const loadNumber = ensureCompanyLoadNumber(mapCompany(companyResult.rows[0] || { id: companyId, code: 'COMPANY' }), loadCount.rows.map(mapLoad), payload.loadNumber);
-    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,public_tracking_token,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,makeTrackingToken(),status,JSON.stringify(events)]);
+    const r = await pool.query(`INSERT INTO loads (company_id,load_number,load_type,load_details,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,public_tracking_token,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,loadNumber,payload.loadType || 'dry_van',JSON.stringify(payload.loadDetails || {}),payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,makeTrackingToken(),status,JSON.stringify(events)]);
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - ') });
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - ') });
     return mapLoad(r.rows[0]);
