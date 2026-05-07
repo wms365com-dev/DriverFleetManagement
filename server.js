@@ -222,6 +222,37 @@ function publicLoadPayload(load) {
       }))
   };
 }
+function demoPublicLoad(token) {
+  const normalized = String(token || '').trim().toLowerCase();
+  const demoIds = new Set(['demo0001-2026-000777', 'd365-demo-orlando', 'orlando-demo']);
+  if (!demoIds.has(normalized)) return null;
+  const createdAt = '2026-05-04T09:00:00-04:00';
+  const deliveredAt = '2026-05-04T14:00:00-04:00';
+  return {
+    loadNumber: 'DEMO0001-2026-000777',
+    customer: 'Demo Customer',
+    referenceNumber: 'ORLANDO-35',
+    pickupName: 'Dispatcher365 Demo Warehouse',
+    pickupAddress: 'Demo pickup location',
+    pickupAppointment: createdAt,
+    deliveryName: '35 Orlando Drive',
+    deliveryAddress: '35 Orlando Drive, St. Catharines, Ontario',
+    deliveryAppointment: deliveredAt,
+    commodity: 'General freight',
+    pieces: '2 pallets / 30 cartons',
+    status: 'delivered',
+    updatedAt: deliveredAt,
+    events: [
+      { status: 'assigned', note: 'Demo shipment assigned to driver.', at: createdAt },
+      { status: 'en_route_pickup', note: 'Driver en route to pickup.', at: '2026-05-04T09:30:00-04:00' },
+      { status: 'picked_up', note: 'Pickup confirmed: 2 pallets, 30 cartons.', at: '2026-05-04T10:15:00-04:00' },
+      { status: 'in_transit', note: 'Shipment in transit to St. Catharines.', at: '2026-05-04T11:00:00-04:00' },
+      { status: 'at_delivery', note: 'Driver arrived at 35 Orlando Drive.', at: '2026-05-04T13:45:00-04:00' },
+      { status: 'delivered', note: 'Delivered May 4 at 2:00 PM.', at: deliveredAt }
+    ],
+    documents: []
+  };
+}
 function escHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;',
@@ -842,7 +873,7 @@ app.get('/bol/:id', auth, requireCompanyScope, requireDriverProfile, async (req,
 
 app.get('/api/public/loads/:token', async (req, res) => {
   try {
-    const load = await db.getPublicLoadByToken(req.params.token);
+    const load = await db.getPublicLoadByToken(req.params.token) || demoPublicLoad(req.params.token);
     if (!load) return res.status(404).json({ error: 'Tracking link not found' });
     res.json(publicLoadPayload(load));
   } catch (error) {
