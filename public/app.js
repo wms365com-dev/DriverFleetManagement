@@ -19,6 +19,7 @@ const state = {
   trackingWatch: null,
   trackingTimer: null,
   mapRefreshTimer: null,
+  leafletMap: null,
   gpsStatus: 'idle',
   gpsMessage: 'Tap Allow GPS to start location tracking.',
   gpsLastUpdate: null,
@@ -221,6 +222,9 @@ function trackingLabel(driver) {
   if (stateName === 'live') return 'live';
   if (stateName === 'stale') return 'stale';
   return hasUsableCoords(driver) && driver?.lastSeenAt ? 'offline' : 'not tracking';
+}
+function driverInitials(driver) {
+  return `${driver?.firstName?.[0] || 'D'}${driver?.lastName?.[0] || ''}`.toUpperCase();
 }
 function powerUnits() {
   return state.vehicles.filter(v => (v.category || 'power_unit') === 'power_unit');
@@ -774,6 +778,7 @@ function renderDashboard() {
 
 
 function renderMapView() {
+  const hasRealMap = typeof L !== 'undefined';
   const tracked = state.drivers.filter(hasUsableCoords);
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   const bounds = tracked.length ? {
@@ -784,14 +789,14 @@ function renderMapView() {
   } : { minLat: 43.60, maxLat: 43.80, minLng: -79.60, maxLng: -79.20 };
   const latRange = Math.max(0.02, bounds.maxLat - bounds.minLat);
   const lngRange = Math.max(0.02, bounds.maxLng - bounds.minLng);
-  const markers = tracked.map(driver => {
+  const markers = hasRealMap ? '' : tracked.map(driver => {
     const rawLeft = ((Number(driver.lastLng) - bounds.minLng) / lngRange) * 100;
     const rawTop = (1 - ((Number(driver.lastLat) - bounds.minLat) / latRange)) * 100;
     const left = Math.max(8, Math.min(92, rawLeft));
     const top = Math.max(8, Math.min(92, rawTop));
     return `<button class="map-marker ${state.selectedDriverId === driver.id ? 'active' : ''} ${attr(trackingState(driver))}" title="${attr(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}" data-driver-marker="${attr(driver.id)}" style="left:${left}%;top:${top}%"><span>${esc(driver.firstName?.[0] || 'D')}${esc(driver.lastName?.[0] || '')}</span><small>${esc(driver.firstName || '')}</small></button>`;
   }).join('');
-  const trail = selected?.locationHistory?.slice(-20).map((point, index, points) => {
+  const trail = hasRealMap ? '' : selected?.locationHistory?.slice(-20).map((point, index, points) => {
     const rawLeft = ((Number(point.lng) - bounds.minLng) / lngRange) * 100;
     const rawTop = (1 - ((Number(point.lat) - bounds.minLat) / latRange)) * 100;
     const left = Math.max(8, Math.min(92, rawLeft));
@@ -804,7 +809,8 @@ function renderMapView() {
     <section class="map-layout">
       <div class="panel glass map-panel">
         <div class="panel-head"><h3>Live Driver Tracking</h3><p>Driver locations update once per minute after GPS permission is granted on mobile.</p></div>
-        <div class="map-canvas">
+        <div class="map-canvas ${hasRealMap ? 'uses-real-map' : 'uses-grid-map'}">
+          <div id="realMap" class="real-map"></div>
           <div class="map-grid"></div>
           ${trail}
           ${markers || '<div class="map-empty">No live driver locations yet. Drivers will appear here after signing in and allowing location tracking.</div>'}
@@ -1282,6 +1288,7 @@ function bindView(view) {
   }
   if (view === 'map') {
     startMapRefresh();
+    setTimeout(initActualMap, 0);
     document.querySelectorAll('[data-driver-focus],[data-driver-marker]').forEach(btn => btn.onclick = () => {
       state.selectedDriverId = Number(btn.dataset.driverFocus || btn.dataset.driverMarker);
       render();
@@ -1492,6 +1499,10 @@ function stopDriverTracking() {
 function stopMapRefresh() {
   if (state.mapRefreshTimer) clearInterval(state.mapRefreshTimer);
   state.mapRefreshTimer = null;
+  if (state.leafletMap) {
+    state.leafletMap.remove();
+    state.leafletMap = null;
+  }
 }
 
 function startMapRefresh() {
@@ -1505,6 +1516,51 @@ function startMapRefresh() {
       console.warn('Map refresh failed', error.message);
     }
   }, 15000);
+}
+
+function initActualMap() {
+  const mapEl = document.getElementById('realMap');
+  if (!mapEl || typeof L === 'undefined') return;
+  if (state.leafletMap) {
+    state.leafletMap.remove();
+    state.leafletMap = null;
+  }
+  const tracked = state.drivers.filter(hasUsableCoords);
+  const center = tracked[0] ? [Number(tracked[0].lastLat), Number(tracked[0].lastLng)] : [43.6532, -79.3832];
+  const map = L.map(mapEl, { scrollWheelZoom: true, zoomControl: true }).setView(center, tracked.length > 1 ? 10 : 12);
+  state.leafletMap = map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const bounds = [];
+  for (const driver of tracked) {
+    const latLng = [Number(driver.lastLat), Number(driver.lastLng)];
+    bounds.push(latLng);
+    const marker = L.marker(latLng, {
+      icon: L.divIcon({
+        className: `leaflet-driver-pin ${trackingState(driver)}`,
+        html: `<span>${esc(driverInitials(driver))}</span><small>${esc(driver.firstName || 'Driver')}</small>`,
+        iconSize: [54, 66],
+        iconAnchor: [27, 27]
+      })
+    }).addTo(map);
+    marker.bindPopup(`<strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong><br>${esc(trackingLabel(driver))}<br>${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}`);
+    marker.on('click', () => {
+      state.selectedDriverId = Number(driver.id);
+      render();
+    });
+  }
+
+  const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
+  const trail = (selected?.locationHistory || []).filter(point => hasUsableCoords({ lastLat: point.lat, lastLng: point.lng })).slice(-50).map(point => [Number(point.lat), Number(point.lng)]);
+  if (trail.length > 1) {
+    L.polyline(trail, { color: '#43a6ff', weight: 4, opacity: .72 }).addTo(map);
+    bounds.push(...trail);
+  }
+  if (bounds.length > 1) map.fitBounds(bounds, { padding: [42, 42] });
+  setTimeout(() => map.invalidateSize(), 80);
 }
 
 

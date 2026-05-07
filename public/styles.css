@@ -211,8 +211,11 @@ tbody tr:hover { background: rgba(67,166,255,.045); }
 .map-layout { display:grid; grid-template-columns: 1.35fr .85fr; gap:16px; }
 .map-panel { min-height: 640px; }
 .map-canvas { position:relative; min-height: 540px; border-radius: 24px; overflow:hidden; border:1px solid var(--line); background: linear-gradient(180deg, rgba(12,25,43,.88), rgba(6,15,30,.92)); }
+.real-map { position:absolute; inset:0; z-index:1; background:#0b1728; }
+.uses-grid-map .real-map { display:none; }
+.real-map .leaflet-control-attribution { font-size:10px; }
 .map-grid { position:absolute; inset:0; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 52px 52px; opacity:.55; }
-.map-empty { position:absolute; inset:0; display:grid; place-items:center; padding:30px; text-align:center; color:var(--muted); }
+.map-empty { position:absolute; inset:0; display:grid; place-items:center; padding:30px; text-align:center; color:var(--muted); z-index:4; }
 .map-empty.small { min-height: 180px; position:static; }
 .map-marker { position:absolute; transform: translate(-50%, -50%); width:56px; height:56px; border-radius:999px; border:2px solid rgba(255,255,255,.65); background: linear-gradient(135deg, var(--primary), var(--green)); color:#07131f; font-weight:800; box-shadow:0 10px 24px rgba(0,0,0,.35); cursor:pointer; z-index:3; }
 .map-marker.stale { background: linear-gradient(135deg, #f9bb45, #ffe08a); }
@@ -254,3 +257,7 @@ tbody tr:hover { background: rgba(67,166,255,.045); }
 
 .map-marker { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; }
 .map-marker small{font-size:10px; line-height:1; max-width:72px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#eaf6ff; text-shadow:0 1px 2px rgba(0,0,0,.45); position:absolute; top:58px;}
+.leaflet-driver-pin { display:grid; place-items:center; position:relative; width:54px; height:54px; border-radius:999px; border:3px solid rgba(255,255,255,.85); background:linear-gradient(135deg, var(--primary), var(--green)); color:#07131f; font-weight:900; box-shadow:0 10px 24px rgba(0,0,0,.35); }
+.leaflet-driver-pin.stale { background:linear-gradient(135deg, #f9bb45, #ffe08a); }
+.leaflet-driver-pin.offline { background:linear-gradient(135deg, #677189, #aab4c5); }
+.leaflet-driver-pin small { position:absolute; top:58px; color:#07131f; background:rgba(255,255,255,.9); padding:2px 6px; border-radius:999px; font-size:10px; white-space:nowrap; box-shadow:0 3px 10px rgba(0,0,0,.22); }
