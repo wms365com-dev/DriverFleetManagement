@@ -121,7 +121,13 @@
 
   <footer class="marketing-footer">
     <strong>Dispatcher365</strong>
+    <span>&copy; <span data-current-year>2026</span> Dispatcher365. All rights reserved.</span>
     <span>Fleet dispatch, inspections, tracking, and proof of delivery.</span>
   </footer>
+  <script>
+    document.querySelectorAll('[data-current-year]').forEach(element => {
+      element.textContent = new Date().getFullYear();
+    });
+  </script>
 </body>
 </html>
