@@ -142,6 +142,13 @@ function validateSignup(payload) {
   if (!payload.firstName) throw new Error('Admin first name is required.');
   if (!payload.lastName) throw new Error('Admin last name is required.');
 }
+function publicSignupError(error) {
+  const message = String(error?.message || '');
+  if (message.includes('companies_pkey') || message.includes('duplicate key value')) {
+    return 'We could not create the company workspace because setup is being refreshed. Please try again in a minute.';
+  }
+  return message || 'Unable to create company signup';
+}
 async function ensureApprovedCompanyForLogin(user) {
   if (user.role === 'super_user') return;
   const companies = await db.getCompanies();
@@ -615,7 +622,7 @@ app.post('/api/public/signup', async (req, res) => {
     });
     res.json({ ok: true, company, pendingApproval: true, message: 'Signup received. A super admin must approve the company before login is enabled.' });
   } catch (error) {
-    res.status(400).json({ error: error.message || 'Unable to create company signup' });
+    res.status(400).json({ error: publicSignupError(error) });
   }
 });
 

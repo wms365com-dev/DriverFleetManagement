@@ -352,6 +352,14 @@ async function ensureSuperUser() {
   return true;
 }
 
+async function syncPostgresSerialSequences() {
+  if (!usePostgres) return;
+  const tables = ['companies', 'users', 'drivers', 'vehicles', 'assignments', 'shifts', 'inspections', 'issues', 'loads', 'addresses', 'bug_reports'];
+  for (const table of tables) {
+    await pool.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`);
+  }
+}
+
 async function initPostgres() {
   const schema = `
   CREATE TABLE IF NOT EXISTS companies (
@@ -597,7 +605,9 @@ async function initPostgres() {
     if (company.code !== code) await pool.query('UPDATE companies SET code=$2 WHERE id=$1', [company.id, code]);
     usedCompanyCodes.add(code);
   }
+  await syncPostgresSerialSequences();
   await ensureSuperUser();
+  await syncPostgresSerialSequences();
 }
 
 const commonMethods = {
