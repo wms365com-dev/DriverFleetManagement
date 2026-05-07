@@ -186,6 +186,14 @@ const loadCompatibilityRules = {
     label: 'Sprinter van / cargo van'
   }
 };
+const loadDocumentRequirements = {
+  dry_van: ['bol', 'pod'],
+  container: ['delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof'],
+  flatbed: ['securement_photo', 'signed_bol', 'pod'],
+  straight_truck: ['pod', 'signature'],
+  sprinter_van: ['pod', 'signature']
+};
+const publicDocumentTypes = new Set(['bol', 'signed_bol', 'pod', 'proof', 'delivery', 'receipt', 'delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof', 'securement_photo', 'tarp_photo']);
 function loadDetailPayload(body) {
   return {
     containerNumber: String(body.containerNumber || '').trim(),
@@ -270,6 +278,18 @@ async function validateLoadCompatibility(companyId, payload) {
     throw new Error(`${rule.label} loads should not have trailer equipment assigned.`);
   }
 }
+function loadMissingRequiredDocs(load) {
+  const required = loadDocumentRequirements[load.loadType || 'dry_van'] || loadDocumentRequirements.dry_van;
+  const present = new Set((load.documents || []).map(doc => String(doc.type || '').toLowerCase()));
+  return required.filter(type => !present.has(type));
+}
+function validateLoadCloseRequirements(load, status) {
+  if (!['delivered', 'pod_uploaded', 'closed'].includes(status)) return;
+  const missing = loadMissingRequiredDocs(load);
+  if (missing.length) {
+    throw new Error(`Required proof missing before ${status.replaceAll('_', ' ')}: ${missing.map(type => type.replaceAll('_', ' ')).join(', ')}.`);
+  }
+}
 function publicLoadPayload(load) {
   if (!load) return null;
   return {
@@ -294,7 +314,7 @@ function publicLoadPayload(load) {
       at: event.at
     })),
     documents: (load.documents || [])
-      .filter(doc => ['bol', 'pod', 'proof', 'delivery', 'receipt'].includes(String(doc.type || '').toLowerCase()))
+      .filter(doc => publicDocumentTypes.has(String(doc.type || '').toLowerCase()))
       .map(doc => ({
         type: doc.type || 'document',
         note: doc.note || '',
@@ -333,7 +353,10 @@ function demoPublicLoad(token) {
       { status: 'at_delivery', note: 'Driver arrived at 35 Orlando Drive.', at: '2026-05-04T13:45:00-04:00' },
       { status: 'delivered', note: 'Delivered May 4 at 2:00 PM.', at: deliveredAt }
     ],
-    documents: []
+    documents: [
+      { type: 'pod', note: 'Demo proof of delivery uploaded.', url: '', uploadedAt: deliveredAt },
+      { type: 'signature', note: 'Demo receiver signature captured.', uploadedAt: deliveredAt }
+    ]
   };
 }
 function escHtml(value) {
@@ -494,7 +517,7 @@ function mapGeoapifySuggestion(item) {
 function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
 }
-const driverLoadStatuses = new Set(['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'exception']);
+const driverLoadStatuses = new Set(['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'pod_uploaded', 'closed', 'exception']);
 function bugPayload(body, files = []) {
   return {
     page: body.page || '',
@@ -885,6 +908,7 @@ app.patch('/api/loads/:id/status', auth, requireCompanyScope, requireDriverProfi
     if (!canDriverAccessLoad(req, load)) return res.status(403).json({ error: 'Drivers can only update assigned loads' });
     const status = String(req.body.status || '').trim();
     if (isDriver(req) && !driverLoadStatuses.has(status)) return res.status(400).json({ error: 'Invalid driver load status' });
+    validateLoadCloseRequirements(load, status);
     const updated = await db.updateLoadStatus(req.companyId, load.id, status, req.body.note || '', req.sessionUser);
     res.json(updated);
   } catch (error) {

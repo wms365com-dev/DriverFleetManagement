@@ -85,7 +85,9 @@ const loadStatusFlow = [
   ['picked_up', 'Confirm Pickup'],
   ['in_transit', 'In Transit'],
   ['at_delivery', 'At Delivery'],
-  ['delivered', 'Confirm Delivery']
+  ['delivered', 'Confirm Delivery'],
+  ['pod_uploaded', 'POD Uploaded'],
+  ['closed', 'Close Load']
 ];
 const dockTypeOptions = [
   ['dock_level', 'Dock Level'],
@@ -129,6 +131,44 @@ const loadCompatibilityRules = {
     summary: 'Requires sprinter or cargo van. Capture piece count, max dimensions, floor loading, and appointment windows.'
   }
 };
+const loadDocumentRequirements = {
+  dry_van: {
+    required: ['bol', 'pod'],
+    optional: ['seal_photo']
+  },
+  container: {
+    required: ['delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof'],
+    optional: []
+  },
+  flatbed: {
+    required: ['securement_photo', 'signed_bol', 'pod'],
+    optional: ['tarp_photo']
+  },
+  straight_truck: {
+    required: ['pod', 'signature'],
+    optional: ['access_notes']
+  },
+  sprinter_van: {
+    required: ['pod', 'signature'],
+    optional: ['access_notes']
+  }
+};
+const loadDocumentTypes = [
+  ['bol', 'BOL'],
+  ['signed_bol', 'Signed BOL'],
+  ['pod', 'POD'],
+  ['delivery_order', 'Delivery Order'],
+  ['port_pickup_proof', 'Port Pickup Proof'],
+  ['container_photo', 'Container Photo'],
+  ['seal_photo', 'Seal Photo'],
+  ['empty_return_proof', 'Empty Return Proof'],
+  ['securement_photo', 'Securement Photo'],
+  ['tarp_photo', 'Tarp Photo'],
+  ['signature', 'Signature'],
+  ['access_notes', 'Access Notes'],
+  ['receipt', 'Receipt'],
+  ['other', 'Other']
+];
 const viewIcons = {
   platformHome: 'grid',
   adminHome: 'grid',
@@ -294,6 +334,44 @@ function vehicleCompatibleWithLoad(vehicle, loadType, slot = 'power') {
 }
 function loadTypeRuleSummary(type) {
   return (loadCompatibilityRules[type || 'dry_van'] || loadCompatibilityRules.dry_van).summary;
+}
+function docTypeLabel(type) {
+  return loadDocumentTypes.find(([value]) => value === type)?.[1] || String(type || 'document').replaceAll('_', ' ');
+}
+function loadDocTypes(loadType) {
+  const requirements = loadDocumentRequirements[loadType || 'dry_van'] || loadDocumentRequirements.dry_van;
+  const preferred = [...requirements.required, ...requirements.optional, 'receipt', 'other'];
+  const seen = new Set();
+  return preferred
+    .concat(loadDocumentTypes.map(([value]) => value))
+    .filter(type => !seen.has(type) && seen.add(type));
+}
+function loadHasDoc(load, docType) {
+  return (load.documents || []).some(doc => String(doc.type || '').toLowerCase() === docType);
+}
+function loadRequiredDocs(load) {
+  return (loadDocumentRequirements[load.loadType || 'dry_van'] || loadDocumentRequirements.dry_van).required;
+}
+function loadMissingDocs(load) {
+  return loadRequiredDocs(load).filter(type => !loadHasDoc(load, type));
+}
+function renderLoadChecklist(load) {
+  const requirements = loadDocumentRequirements[load.loadType || 'dry_van'] || loadDocumentRequirements.dry_van;
+  const rows = [
+    ...requirements.required.map(type => [type, true]),
+    ...requirements.optional.map(type => [type, false])
+  ];
+  if (!rows.length) return '';
+  return `<div class="load-checklist">
+    <strong>Required proof</strong>
+    <div>${rows.map(([type, required]) => {
+      const done = loadHasDoc(load, type);
+      return `<span class="${done ? 'done' : ''}">${done ? 'Done' : required ? 'Required' : 'Optional'}: ${esc(docTypeLabel(type))}</span>`;
+    }).join('')}</div>
+  </div>`;
+}
+function renderLoadDocumentTypeOptions(load) {
+  return loadDocTypes(load.loadType || 'dry_van').map(type => `<option value="${attr(type)}">${esc(docTypeLabel(type))}</option>`).join('');
 }
 function failedItems(inspection) {
   return (inspection.itemResults || []).filter(item => item.result === 'fail');
@@ -1414,6 +1492,7 @@ function renderLoadCard(load, dispatcher = false) {
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
     ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
+    ${renderLoadChecklist(load)}
     ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
     ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>` : ''}
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
@@ -1778,8 +1857,8 @@ function renderDriverWorkPage() {
     ? state.user.linkedDriverId
     : (state.selectedDriverId || state.drivers[0]?.id || null);
   const driver = byId(state.drivers, driverId) || {};
-  const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['delivered', 'cancelled'].includes(load.status));
-  const deliveredLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && load.status === 'delivered').slice(0, 5);
+  const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['closed', 'cancelled'].includes(load.status));
+  const deliveredLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && ['delivered', 'pod_uploaded', 'closed'].includes(load.status)).slice(0, 5);
   return `
     <section class="mobile-stage">
       <div class="mobile-card primary-card">
@@ -1799,16 +1878,19 @@ function renderDriverWorkPage() {
 
 function renderDriverLoadCard(load) {
   const nextStatus = nextLoadStatus(load);
+  const missing = loadMissingDocs(load);
   return `<article class="load-card driver-load-card">
-    <div class="card-row"><strong>${esc(load.loadNumber)}</strong>${loadStatusTag(load)}</div>
+    <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
+    ${renderLoadChecklist(load)}
+    ${missing.length ? `<p class="tiny">Upload required proof before delivery close: ${missing.map(docTypeLabel).join(', ')}</p>` : ''}
     <div class="load-actions">
       ${loadStatusFlow.map(([status, label]) => `<button class="btn ${status === nextStatus ? 'primary' : 'ghost'} small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}">${esc(label)}</button>`).join('')}
       <button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="exception">Exception</button>
     </div>
     <form class="load-doc-form stack compact" data-load-doc="${attr(load.id)}" enctype="multipart/form-data">
-      <div class="split"><label>Document type<select name="type"><option value="bol">BOL</option><option value="pod">POD</option><option value="receipt">Receipt</option><option value="other">Other</option></select></label><label>Photo<input class="photo-input" data-preview="loadPreview${attr(load.id)}" type="file" name="photos" multiple accept="image/*" capture="environment" /></label></div>
+      <div class="split"><label>Document type<select name="type">${renderLoadDocumentTypeOptions(load)}</select></label><label>Photo<input class="photo-input" data-preview="loadPreview${attr(load.id)}" type="file" name="photos" multiple accept="image/*" capture="environment" /></label></div>
       <label>Note<input name="note" placeholder="Optional document note" /></label>
       <div class="photo-row" id="loadPreview${attr(load.id)}"></div>
       <button class="btn primary small-btn" type="submit">Upload BOL / POD</button>

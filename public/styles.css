@@ -112,6 +112,11 @@ textarea { min-height: 88px; resize: vertical; }
 .action-card:hover { border-color: rgba(67,166,255,.35); background: rgba(67,166,255,.08); }
 .load-board { display:grid; gap:12px; }
 .load-card { border:1px solid var(--line); border-radius:18px; padding:14px; background:rgba(255,255,255,.03); display:grid; gap:12px; }
+.load-checklist { display:grid; gap:8px; padding:10px; border:1px solid var(--line); border-radius:10px; background:rgba(169,184,205,.055); }
+.load-checklist strong { font-size:12px; text-transform:uppercase; color:#c8d4e3; }
+.load-checklist div { display:flex; flex-wrap:wrap; gap:6px; }
+.load-checklist span { display:inline-flex; align-items:center; min-height:26px; padding:4px 8px; border-radius:999px; border:1px solid rgba(221,92,111,.3); background:rgba(221,92,111,.12); color:#f2a0ac; font-size:11px; font-weight:800; }
+.load-checklist span.done { border-color:rgba(38,169,120,.32); background:rgba(38,169,120,.13); color:#7ee0ba; }
 .load-stop { display:grid; grid-template-columns:42px 1fr; gap:10px; align-items:start; }
 .load-stop span { width:34px; height:34px; border-radius:999px; display:grid; place-items:center; background:rgba(67,166,255,.14); color:#9ed6ff; font-weight:800; font-size:11px; }
 .load-stop p { color:var(--muted); font-size:13px; }
