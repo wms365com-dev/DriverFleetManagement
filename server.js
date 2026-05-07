@@ -620,7 +620,7 @@ app.post('/api/public/signup', async (req, res) => {
       lastName: payload.lastName,
       isActive: false
     });
-    res.json({ ok: true, company, pendingApproval: true, message: 'Signup received. A super admin must approve the company before login is enabled.' });
+    res.json({ ok: true, company, pendingApproval: true, message: 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved.' });
   } catch (error) {
     res.status(400).json({ error: publicSignupError(error) });
   }

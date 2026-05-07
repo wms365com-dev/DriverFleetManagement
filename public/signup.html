@@ -110,7 +110,7 @@
         if (!res.ok) throw new Error(body.error || 'Unable to create signup.');
         message.className = 'signup-message success';
         form.reset();
-        message.textContent = body.message || 'Signup received. A super admin must approve the company before login is enabled.';
+        message.textContent = body.message || 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved.';
       } catch (error) {
         message.className = 'signup-message error';
         message.textContent = error.message;
