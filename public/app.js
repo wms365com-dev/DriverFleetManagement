@@ -202,7 +202,12 @@ function driverActiveLoad(driverId) {
   return activeLoads().find(load => Number(load.driverId) === Number(driverId)) || null;
 }
 function trackingAge(driver) {
-  return driver?.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+  return hasUsableCoords(driver) && driver?.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
+}
+function hasUsableCoords(driver) {
+  const lat = Number(driver?.lastLat);
+  const lng = Number(driver?.lastLng);
+  return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
 }
 function trackingState(driver) {
   const age = trackingAge(driver);
@@ -215,7 +220,7 @@ function trackingLabel(driver) {
   const stateName = trackingState(driver);
   if (stateName === 'live') return 'live';
   if (stateName === 'stale') return 'stale';
-  return driver?.lastSeenAt ? 'offline' : 'not tracking';
+  return hasUsableCoords(driver) && driver?.lastSeenAt ? 'offline' : 'not tracking';
 }
 function powerUnits() {
   return state.vehicles.filter(v => (v.category || 'power_unit') === 'power_unit');
@@ -769,7 +774,7 @@ function renderDashboard() {
 
 
 function renderMapView() {
-  const tracked = state.drivers.filter(d => Number.isFinite(Number(d.lastLat)) && Number.isFinite(Number(d.lastLng)));
+  const tracked = state.drivers.filter(hasUsableCoords);
   const selected = tracked.find(d => Number(d.id) === Number(state.selectedDriverId)) || tracked[0] || null;
   const bounds = tracked.length ? {
     minLat: Math.min(...tracked.map(d => Number(d.lastLat))),
@@ -813,7 +818,7 @@ function renderMapView() {
               <button class="list-card map-driver-card ${selected?.id === driver.id ? 'selected' : ''}" data-driver-focus="${driver.id}">
                 <div class="card-row"><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong>${statusTag(trackingLabel(driver))}</div>
                 <div class="tiny">${esc(driver.email || driver.phone || 'No contact set')}</div>
-                <div class="tiny">${driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : (Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? 'Coordinates received' : 'Awaiting first location update')}</div><div class="tiny">${Number.isFinite(Number(driver.lastLat)) && Number.isFinite(Number(driver.lastLng)) ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No coordinates yet'}</div>
+                <div class="tiny">${hasUsableCoords(driver) && driver.lastSeenAt ? `Last seen ${fmt(driver.lastSeenAt)}` : 'Awaiting first GPS update'}</div><div class="tiny">${hasUsableCoords(driver) ? `${Number(driver.lastLat).toFixed(5)}, ${Number(driver.lastLng).toFixed(5)}` : 'No usable coordinates yet'}</div>
               </button>`).join('')}
           </div>
         </div>

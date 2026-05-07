@@ -95,8 +95,9 @@ textarea { min-height: 88px; resize: vertical; }
 .span-2 { grid-column: span 2; }
 .list-grid, .issue-list, .inspection-grid { display: grid; gap: 12px; }
 .list-card, .issue-card, .inspection-card {
-  border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.03);
+  border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.03); color: var(--text);
 }
+.list-card p, .issue-card p, .inspection-card p { color: var(--muted); }
 .role-home { display: grid; gap: 16px; }
 .compact-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
 .action-grid { margin-top: 8px; }
@@ -219,8 +220,9 @@ tbody tr:hover { background: rgba(67,166,255,.045); }
 .map-marker span { pointer-events:none; }
 .map-marker.active { outline: 4px solid rgba(110,196,255,.25); }
 .map-trail-dot { position:absolute; width:10px; height:10px; border-radius:999px; background:#9ed6ff; border:2px solid rgba(255,255,255,.7); transform:translate(-50%, -50%); z-index:2; }
-.compact-list { max-height: 340px; overflow:auto; }
-.map-driver-card { text-align:left; background: rgba(255,255,255,.02); cursor:pointer; }
+.compact-list { max-height: 340px; overflow:auto; padding-right:4px; }
+.map-driver-card { width:100%; text-align:left; background: rgba(255,255,255,.02); cursor:pointer; color:var(--text); }
+.map-driver-card strong { color:var(--text); }
 .map-driver-card.selected { border-color: rgba(67,166,255,.35); background: rgba(67,166,255,.08); }
 .card-row { display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .driver-location-card { display:grid; gap:10px; }
