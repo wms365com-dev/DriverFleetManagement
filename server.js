@@ -27,6 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(['/portal', '/login', '/app'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
+app.get('/signup', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'signup.html')));
 
 function parseCookies(req) {
   const header = req.headers.cookie || '';
@@ -114,6 +115,30 @@ function requireAssignedVehicle(req, vehicleId) {
   if (!assignedVehicleId || Number(vehicleId) !== assignedVehicleId) {
     throw new Error('Drivers can only work with their assigned vehicle.');
   }
+}
+function companyCodeFromName(name) {
+  const base = String(name || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 12) || 'COMPANY';
+  return `${base}-${Date.now().toString(36).toUpperCase()}`.slice(0, 20);
+}
+function signupPayload(body) {
+  return {
+    companyName: String(body.companyName || '').trim(),
+    fleetSize: String(body.fleetSize || '').trim(),
+    firstName: String(body.firstName || '').trim(),
+    lastName: String(body.lastName || '').trim(),
+    phone: String(body.phone || '').trim(),
+    email: String(body.email || '').trim().toLowerCase(),
+    password: String(body.password || ''),
+    website: String(body.website || '').trim()
+  };
+}
+function validateSignup(payload) {
+  if (payload.website) throw new Error('Unable to create signup.');
+  if (payload.companyName.length < 2) throw new Error('Company name is required.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('Valid admin email is required.');
+  if (payload.password.length < 10) throw new Error('Password must be at least 10 characters.');
+  if (!payload.firstName) throw new Error('Admin first name is required.');
+  if (!payload.lastName) throw new Error('Admin last name is required.');
 }
 function parseInspectionItems(raw) {
   const parsed = JSON.parse(raw || '[]');
@@ -211,6 +236,36 @@ function bugPayload(body, files = []) {
 
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, superUserConfigured: await db.hasAdminSetup() });
+});
+
+app.post('/api/public/signup', async (req, res) => {
+  try {
+    const payload = signupPayload(req.body);
+    validateSignup(payload);
+    const existing = await db.findUserByEmail(payload.email);
+    if (existing) return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
+
+    const company = await db.createCompany({
+      name: payload.companyName,
+      code: companyCodeFromName(payload.companyName),
+      status: 'active'
+    });
+    const user = await db.createUser({
+      companyId: company.id,
+      email: payload.email,
+      password: payload.password,
+      role: 'admin',
+      firstName: payload.firstName,
+      lastName: payload.lastName
+    });
+    const safeUser = sanitizeUser(user);
+    const token = createSessionToken();
+    sessions.set(token, safeUser);
+    setSessionCookie(res, token);
+    res.json({ ok: true, company, user: safeUser, next: '/portal' });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create company signup' });
+  }
 });
 
 app.post('/api/auth/login', async (req, res) => {

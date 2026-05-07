@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up | Dispatcher365</title>
+  <meta name="description" content="Create a Dispatcher365 company workspace and first admin user." />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="marketing-body">
+  <header class="marketing-nav">
+    <a class="marketing-brand" href="/">
+      <span>D365</span>
+      <strong>Dispatcher365</strong>
+    </a>
+    <nav>
+      <a href="/">Home</a>
+      <a class="marketing-login" href="/portal">Log In</a>
+    </nav>
+  </header>
+
+  <main class="signup-page">
+    <section class="signup-intro">
+      <p class="eyebrow">Company setup</p>
+      <h1>Create your Dispatcher365 workspace.</h1>
+      <p>Start with the company account. We will create the first admin user, then the admin can add dispatchers, drivers, equipment, locations, and assignments inside the secure portal.</p>
+      <div class="signup-flow">
+        <article><span>1</span><strong>Company</strong><small>Create the fleet workspace.</small></article>
+        <article><span>2</span><strong>Admin User</strong><small>Create the first company admin.</small></article>
+        <article><span>3</span><strong>Portal Setup</strong><small>Add drivers, dispatchers, and equipment.</small></article>
+      </div>
+    </section>
+
+    <section class="signup-card">
+      <form id="signupForm" class="stack">
+        <div>
+          <p class="eyebrow">Step 1</p>
+          <h2>Company</h2>
+        </div>
+        <label>Company name<input name="companyName" required autocomplete="organization" placeholder="Example Logistics Inc." /></label>
+        <label>Fleet size<select name="fleetSize">
+          <option value="">Select fleet size</option>
+          <option value="1-5">1-5 units</option>
+          <option value="6-20">6-20 units</option>
+          <option value="21-75">21-75 units</option>
+          <option value="76+">76+ units</option>
+        </select></label>
+
+        <div class="soft-rule"></div>
+        <div>
+          <p class="eyebrow">Step 2</p>
+          <h2>First Admin User</h2>
+        </div>
+        <div class="split">
+          <label>First name<input name="firstName" required autocomplete="given-name" /></label>
+          <label>Last name<input name="lastName" required autocomplete="family-name" /></label>
+        </div>
+        <label>Email<input name="email" type="email" required autocomplete="email" /></label>
+        <label>Phone<input name="phone" autocomplete="tel" /></label>
+        <label>Password<input name="password" type="password" required autocomplete="new-password" minlength="10" placeholder="At least 10 characters" /></label>
+        <label>Confirm password<input name="confirmPassword" type="password" required autocomplete="new-password" minlength="10" /></label>
+        <label class="hp-field">Website<input name="website" tabindex="-1" autocomplete="off" /></label>
+        <button class="btn primary" type="submit">Create Company Workspace</button>
+        <p class="signup-message" id="signupMessage" role="status"></p>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('signupForm');
+    const message = document.getElementById('signupMessage');
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      message.className = 'signup-message';
+      message.textContent = 'Creating your workspace...';
+      const data = Object.fromEntries(new FormData(form));
+      if (data.password !== data.confirmPassword) {
+        message.className = 'signup-message error';
+        message.textContent = 'Passwords do not match.';
+        return;
+      }
+      try {
+        const res = await fetch('/api/public/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Unable to create signup.');
+        message.className = 'signup-message success';
+        message.textContent = 'Workspace created. Opening the portal...';
+        setTimeout(() => { window.location.href = body.next || '/portal'; }, 700);
+      } catch (error) {
+        message.className = 'signup-message error';
+        message.textContent = error.message;
+      }
+    });
+  </script>
+</body>
+</html>
