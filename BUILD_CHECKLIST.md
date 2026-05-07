@@ -45,10 +45,10 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 
 ## Operations Features
 
-- [ ] Calendar/dispatch board by day.
+- [x] Calendar/dispatch board by day.
 - [ ] Drag-and-drop load assignment.
 - [ ] Driver availability schedule.
-- [ ] Unassigned loads queue.
+- [x] Unassigned loads queue.
 - [ ] Late load alerts.
 - [ ] Exception reporting: refused freight, damaged freight, waiting time, no dock, customer closed.
 - [ ] Rate, accessorials, detention, lumper, tolls, extra stop fees.

@@ -1049,6 +1049,47 @@ app.post('/api/loads', auth, staffOnly, requireCompanyScope, async (req, res) =>
     res.status(400).json({ error: error.message || 'Unable to create load' });
   }
 });
+app.patch('/api/loads/:id/assignment', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const loads = await db.getLoads(req.companyId);
+    const current = loads.find(l => Number(l.id) === Number(req.params.id));
+    if (!current) return res.status(404).json({ error: 'Load not found' });
+    const payload = {
+      ...current,
+      driverId: Number(req.body.driverId) || null,
+      vehicleId: Number(req.body.vehicleId) || null,
+      trailerId: Number(req.body.trailerId) || null
+    };
+    await validateLoadCompatibility(req.companyId, payload);
+    const load = await db.updateLoadAssignment(req.companyId, current.id, payload, req.sessionUser);
+    await notify(req.companyId, {
+      audience: 'dispatcher',
+      type: load.driverId ? 'load_assigned' : 'load_unassigned',
+      severity: load.driverId ? 'success' : 'warning',
+      title: load.driverId ? `Load ${load.loadNumber} assigned` : `Load ${load.loadNumber} unassigned`,
+      message: load.driverId ? `Dispatch board assignment updated for ${load.loadNumber}.` : `${load.loadNumber} is back in the unassigned queue.`,
+      link: '#loads',
+      metadata: loadNotificationMeta(load)
+    });
+    if (load.driverId) {
+      const users = await db.getUsers(req.companyId);
+      const driverUser = users.find(user => Number(user.linkedDriverId) === Number(load.driverId));
+      await notify(req.companyId, {
+        userId: driverUser?.id || null,
+        audience: 'driver',
+        type: 'driver_load_assigned',
+        severity: 'warning',
+        title: `Assigned load ${load.loadNumber}`,
+        message: `Pickup: ${load.pickupName || load.pickupAddress || 'Review pickup details'}. Delivery: ${load.deliveryName || load.deliveryAddress || 'Review delivery details'}.`,
+        link: '#driverWork',
+        metadata: loadNotificationMeta(load)
+      });
+    }
+    res.json(load);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to assign load' });
+  }
+});
 app.patch('/api/loads/:id/status', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   try {
     const loads = await db.getLoads(req.companyId);

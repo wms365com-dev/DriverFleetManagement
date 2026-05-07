@@ -964,6 +964,19 @@ const fileDb = {
     writeFileDb(db);
     return mapLoad(load);
   },
+  async updateLoadAssignment(companyId, id, payload, user) {
+    const db = readFileDb();
+    const load = db.loads.find(l => Number(l.companyId) === Number(companyId) && Number(l.id) === Number(id));
+    if (!load) throw new Error('Load not found.');
+    load.driverId = payload.driverId || null;
+    load.vehicleId = payload.vehicleId || null;
+    load.trailerId = payload.trailerId || null;
+    if (load.driverId && !['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'pod_uploaded', 'closed'].includes(load.status)) load.status = 'assigned';
+    load.updatedAt = new Date().toISOString();
+    load.events = [...(load.events || []), commonMethods.buildLoadEvent(load.status, load.driverId ? 'Load assigned from dispatch board' : 'Load moved to unassigned queue', user)];
+    writeFileDb(db);
+    return mapLoad(load);
+  },
   async addLoadDocument(companyId, id, document, user) {
     const db = readFileDb();
     const load = db.loads.find(l => Number(l.companyId) === Number(companyId) && Number(l.id) === Number(id));
@@ -1240,6 +1253,19 @@ const pgDb = {
     if (!existing.rows[0]) throw new Error('Load not found.');
     const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(status || existing.rows[0].status, note, user)];
     const r = await pool.query('UPDATE loads SET status=$3, events=$4::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, id, status || existing.rows[0].status, JSON.stringify(events)]);
+    return mapLoad(r.rows[0]);
+  },
+  async updateLoadAssignment(companyId, id, payload, user) {
+    const existing = await pool.query('SELECT * FROM loads WHERE company_id=$1 AND id=$2', [companyId, id]);
+    if (!existing.rows[0]) throw new Error('Load not found.');
+    const nextStatus = payload.driverId && !['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'pod_uploaded', 'closed'].includes(existing.rows[0].status)
+      ? 'assigned'
+      : existing.rows[0].status;
+    const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(nextStatus, payload.driverId ? 'Load assigned from dispatch board' : 'Load moved to unassigned queue', user)];
+    const r = await pool.query(
+      'UPDATE loads SET driver_id=$3, vehicle_id=$4, trailer_id=$5, status=$6, events=$7::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *',
+      [companyId, id, payload.driverId || null, payload.vehicleId || null, payload.trailerId || null, nextStatus, JSON.stringify(events)]
+    );
     return mapLoad(r.rows[0]);
   },
   async addLoadDocument(companyId, id, document, user) {

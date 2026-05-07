@@ -431,6 +431,21 @@ function driverActiveLoad(driverId) {
 function vehicleActiveLoad(vehicleId) {
   return activeLoads().find(load => Number(load.vehicleId) === Number(vehicleId) || Number(load.trailerId) === Number(vehicleId)) || null;
 }
+function loadScheduleDate(load) {
+  return load.pickupAppointment || load.deliveryAppointment || load.createdAt || '';
+}
+function dateBucket(load) {
+  const raw = loadScheduleDate(load);
+  const date = raw ? new Date(raw) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'unscheduled';
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (day < today) return 'past_due';
+  if (day === today) return 'today';
+  if (day === today + 86400000) return 'tomorrow';
+  return 'upcoming';
+}
 function currentVehicleInspection(driverId, vehicleId) {
   const cutoff = Date.now() - (24 * 60 * 60 * 1000);
   return state.inspections
@@ -1463,7 +1478,8 @@ function renderLoads() {
   return `
     <div class="two-col">
       <section class="panel glass">
-        <div class="panel-head"><h3>Load Board</h3><p>${activeLoads().length} active loads</p></div>
+        ${renderDispatchBoard()}
+        <div class="panel-head"><h3>Load List</h3><p>${activeLoads().length} active loads</p></div>
         ${listSearch('loadBoard', 'Search load, customer, driver, address, or status')}
         <div class="load-board" data-filter-list="loadBoard">
           ${state.loads.map(load => renderLoadCard(load, true)).join('') || emptyState('No loads yet', 'Create the first load from the form on the right.')}
@@ -1524,6 +1540,56 @@ function renderLoads() {
         <div class="address-chip-row">${state.addresses.slice(0, 10).map(item => `<span class="address-chip">${esc(locationLabel(item))}<small>${esc(item.type || 'both')}</small></span>`).join('') || '<p class="tiny">No saved addresses yet.</p>'}</div>
       </section>
     </div>`;
+}
+
+function renderDispatchBoard() {
+  const active = activeLoads();
+  const unassigned = active.filter(load => !load.driverId);
+  const assigned = active.filter(load => load.driverId);
+  const movingStatuses = ['en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery'];
+  const moving = assigned.filter(load => movingStatuses.includes(load.status));
+  const scheduled = assigned.filter(load => !movingStatuses.includes(load.status));
+  const columns = [
+    ['unassigned', 'Unassigned', unassigned],
+    ['past_due', 'Past Due', scheduled.filter(load => dateBucket(load) === 'past_due')],
+    ['today', 'Today', scheduled.filter(load => dateBucket(load) === 'today')],
+    ['tomorrow', 'Tomorrow', scheduled.filter(load => dateBucket(load) === 'tomorrow')],
+    ['upcoming', 'Upcoming', scheduled.filter(load => ['upcoming', 'unscheduled'].includes(dateBucket(load)))],
+    ['moving', 'In Transit', moving]
+  ];
+  return `<div class="dispatch-board-shell">
+    <div class="panel-head"><h3>Dispatch Board</h3><p>${unassigned.length} unassigned &middot; ${assigned.length} assigned</p></div>
+    <div class="dispatch-metrics">
+      <div class="metric-card glass"><span>Unassigned</span><strong>${unassigned.length}</strong></div>
+      <div class="metric-card glass"><span>Today</span><strong>${columns.find(([key]) => key === 'today')[2].length}</strong></div>
+      <div class="metric-card glass"><span>Moving</span><strong>${columns.find(([key]) => key === 'moving')[2].length}</strong></div>
+    </div>
+    <div class="dispatch-board">
+      ${columns.map(([key, label, loads]) => `<section class="dispatch-column ${key}">
+        <div class="dispatch-column-head"><strong>${esc(label)}</strong><span>${loads.length}</span></div>
+        <div class="dispatch-column-body">
+          ${loads.map(load => renderDispatchBoardCard(load)).join('') || `<p class="tiny">No ${esc(label.toLowerCase())} loads.</p>`}
+        </div>
+      </section>`).join('')}
+    </div>
+  </div>`;
+}
+
+function renderDispatchBoardCard(load) {
+  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.vehicleId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.vehicleId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
+  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.trailerId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.trailerId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
+  return `<article class="dispatch-card" data-load-board-card="${attr(load.id)}">
+    <div class="card-row"><strong>${esc(load.loadNumber)}</strong>${loadStatusTag(load)}</div>
+    <p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p>
+    <div class="dispatch-stop"><span>PU</span><p>${esc(load.pickupName || load.pickupAddress || 'Pickup')}<small>${fmt(load.pickupAppointment)}</small></p></div>
+    <div class="dispatch-stop"><span>DEL</span><p>${esc(load.deliveryName || load.deliveryAddress || 'Delivery')}<small>${fmt(load.deliveryAppointment)}</small></p></div>
+    <form class="dispatch-assign-form stack compact" data-load-assignment="${attr(load.id)}">
+      <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${Number(d.id) === Number(load.driverId) ? 'selected' : ''} ${driverAvailableForLoad(d) || Number(d.id) === Number(load.driverId) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
+      <label>Power<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
+      <label>Trailer<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
+      <div class="load-actions"><button class="btn primary small-btn" type="submit">Assign</button>${load.driverId ? `<button class="btn ghost small-btn unassign-load-btn" type="button" data-load-id="${attr(load.id)}">Unassign</button>` : ''}</div>
+    </form>
+  </article>`;
 }
 
 function renderLoadCard(load, dispatcher = false) {
@@ -2057,6 +2123,7 @@ function bindView(view) {
     bindAddressInputs();
     bindLoadEntryHelpers();
     bindTrackingLinks();
+    bindDispatchBoard();
   }
   if (view === 'locations') {
     const form = document.getElementById('locationForm');
@@ -2658,6 +2725,40 @@ function bindLoadEntryHelpers() {
   form.elements.vehicleId?.addEventListener('change', () => refreshLoadTypeControls(form));
   form.elements.trailerId?.addEventListener('change', () => refreshLoadTypeControls(form));
   refreshLoadTypeControls(form);
+}
+
+function bindDispatchBoard() {
+  document.querySelectorAll('.dispatch-assign-form').forEach(form => {
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const btn = e.submitter || form.querySelector('button[type="submit"]');
+      await guardedSubmit(`assignLoad${form.dataset.loadAssignment}`, btn, 'Assigning...', async () => {
+        const body = Object.fromEntries(new FormData(form));
+        await api(`/api/loads/${form.dataset.loadAssignment}/assignment`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        await loadEverything();
+        render();
+        setToast('Load assignment updated', 'success');
+      });
+    };
+  });
+  document.querySelectorAll('.unassign-load-btn').forEach(btn => {
+    btn.onclick = async () => {
+      await guardedSubmit(`unassignLoad${btn.dataset.loadId}`, btn, 'Unassigning...', async () => {
+        await api(`/api/loads/${btn.dataset.loadId}/assignment`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driverId: '', vehicleId: '', trailerId: '' })
+        });
+        await loadEverything();
+        render();
+        setToast('Load moved to unassigned queue', 'success');
+      });
+    };
+  });
 }
 
 async function lookupExternalAddresses(input, type) {
