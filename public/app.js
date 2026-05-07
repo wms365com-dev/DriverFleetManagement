@@ -81,6 +81,7 @@ const staffOperationsNav = [
   ['dispatchHome', 'Dashboard'],
   ['loads', 'Dispatch / Loads'],
   ['locations', 'Customers / Locations'],
+  ['customerTracking', 'Customer Tracking'],
   ['map', 'Live Map'],
   ['drivers', 'Drivers'],
   ['vehicles', 'Equipment'],
@@ -257,6 +258,50 @@ function uniqueCustomers() {
 function locationLabel(item) {
   return [item.customer, item.name].filter(Boolean).join(' - ') || item.address || 'Saved location';
 }
+function customerNameForLoad(load) {
+  return String(load.customer || load.broker || 'Unassigned customer').trim();
+}
+function loadLastActivity(load) {
+  const lastEvent = [...(load.events || [])].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))[0];
+  return lastEvent?.at || load.updatedAt || load.createdAt || '';
+}
+function loadStatusLabel(status) {
+  const match = loadStatusFlow.find(([value]) => value === status);
+  return match?.[1] || String(status || 'new').replaceAll('_', ' ');
+}
+function customerTrackingRecords() {
+  const byCustomer = new Map();
+  const ensure = customer => {
+    const name = String(customer || 'Unassigned customer').trim() || 'Unassigned customer';
+    const key = name.toLowerCase();
+    if (!byCustomer.has(key)) byCustomer.set(key, { name, loads: [], addresses: [] });
+    return byCustomer.get(key);
+  };
+  for (const address of state.addresses) {
+    ensure(address.customer || address.name || 'Unassigned customer').addresses.push(address);
+  }
+  for (const load of state.loads) {
+    ensure(customerNameForLoad(load)).loads.push(load);
+  }
+  return [...byCustomer.values()]
+    .map(record => {
+      const latestLoad = [...record.loads].sort((a, b) => String(loadLastActivity(b)).localeCompare(String(loadLastActivity(a))))[0] || null;
+      const active = record.loads.filter(load => !['delivered', 'cancelled'].includes(load.status));
+      const delivered = record.loads.filter(load => load.status === 'delivered');
+      const documents = record.loads.reduce((count, load) => count + (load.documents || []).length, 0);
+      const drivers = [...new Set(record.loads.map(load => driverName(load.driverId)).filter(name => name && name !== 'Unassigned'))];
+      const contacts = record.addresses.filter(item => item.contactName || item.phone || item.email);
+      return { ...record, latestLoad, active, delivered, documents, drivers, contacts };
+    })
+    .sort((a, b) => String(loadLastActivity(b.latestLoad || {})).localeCompare(String(loadLastActivity(a.latestLoad || {}))) || a.name.localeCompare(b.name));
+}
+function customerUpdateText(record) {
+  const activeSummary = record.active.length
+    ? record.active.map(load => `${load.loadNumber}: ${loadStatusLabel(load.status)} from ${load.pickupName || load.pickupAddress || 'pickup'} to ${load.deliveryName || load.deliveryAddress || 'delivery'}`).join('\n')
+    : 'No active loads are currently open.';
+  const latest = record.latestLoad ? `Last update: ${loadStatusLabel(record.latestLoad.status)} on load ${record.latestLoad.loadNumber} (${fmt(loadLastActivity(record.latestLoad))}).` : 'No load activity recorded yet.';
+  return `Dispatcher365 customer update for ${record.name}\n${latest}\n\nActive work:\n${activeSummary}`;
+}
 function activeAssignmentForDriver(driverId) {
   return state.assignments.find(a => Number(a.driverId) === Number(driverId) && a.active);
 }
@@ -427,6 +472,7 @@ function getNavItems() {
       ['adminHome', 'Dashboard'],
       ['loads', 'Dispatch / Loads'],
       ['locations', 'Customers / Locations'],
+      ['customerTracking', 'Customer Tracking'],
       ['map', 'Live Map'],
       ['drivers', 'Drivers'],
       ['vehicles', 'Equipment'],
@@ -519,6 +565,7 @@ function getViewTitle(view) {
     dispatchHome: 'Dispatch Home',
     loads: 'Load Dispatch',
     locations: 'Customers / Locations',
+    customerTracking: 'Customer Tracking',
     companies: 'Company Setup',
     users: 'Users & Access',
     dashboard: 'Dispatch Dashboard',
@@ -569,6 +616,7 @@ function renderView(view) {
   if (view === 'dispatchHome') return renderDispatchHome();
   if (view === 'loads') return renderLoads();
   if (view === 'locations') return renderLocations();
+  if (view === 'customerTracking') return renderCustomerTracking();
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
@@ -1215,6 +1263,77 @@ function renderLocations() {
     </div>`;
 }
 
+function renderCustomerTracking() {
+  const records = customerTrackingRecords();
+  const activeCustomers = records.filter(record => record.active.length).length;
+  const openLoads = records.reduce((count, record) => count + record.active.length, 0);
+  const customerDocs = records.reduce((count, record) => count + record.documents, 0);
+  return `
+    <div class="dashboard-grid customer-summary">
+      <div class="metric-card glass"><span>Tracked Customers</span><strong>${records.length}</strong></div>
+      <div class="metric-card glass"><span>Customers With Active Loads</span><strong>${activeCustomers}</strong></div>
+      <div class="metric-card glass"><span>Open Customer Loads</span><strong>${openLoads}</strong></div>
+      <div class="metric-card glass"><span>BOL / POD Files</span><strong>${customerDocs}</strong></div>
+    </div>
+    <section class="panel glass customer-tracking-panel">
+      <div class="panel-head"><h3>Customer Tracking</h3><p>Monitor customer loads, driver updates, site contacts, and proof documents.</p></div>
+      ${listSearch('customerTracking', 'Search customer, load, address, driver, or status')}
+      <div class="customer-tracking-grid" data-filter-list="customerTracking">
+        ${records.map(renderCustomerTrackingCard).join('') || emptyState('No customer activity yet', 'Create loads or save customer locations to begin tracking customer work.')}
+        <div data-filter-empty hidden>${emptyState('No matching customers', 'Try another customer, load number, driver, address, or status.')}</div>
+      </div>
+    </section>`;
+}
+
+function renderCustomerTrackingCard(record) {
+  const latest = record.latestLoad;
+  const recentLoads = [...record.loads].sort((a, b) => String(loadLastActivity(b)).localeCompare(String(loadLastActivity(a)))).slice(0, 4);
+  const search = searchableText(
+    record.name,
+    record.addresses.map(item => `${item.name} ${item.address} ${item.contactName} ${item.phone}`).join(' '),
+    record.loads.map(load => `${load.loadNumber} ${load.status} ${load.pickupAddress} ${load.deliveryAddress}`).join(' '),
+    record.drivers.join(' ')
+  );
+  return `<article class="customer-track-card" data-search="${search}">
+    <div class="customer-track-head">
+      <div>
+        <strong>${esc(record.name)}</strong>
+        <p class="tiny">${record.addresses.length} saved location${record.addresses.length === 1 ? '' : 's'} &middot; ${record.loads.length} load${record.loads.length === 1 ? '' : 's'}</p>
+      </div>
+      ${latest ? loadStatusTag(latest) : statusTag('no loads')}
+    </div>
+    <div class="customer-track-metrics">
+      <span><b>${record.active.length}</b> active</span>
+      <span><b>${record.delivered.length}</b> delivered</span>
+      <span><b>${record.documents}</b> docs</span>
+    </div>
+    <div class="customer-track-detail">
+      <div>
+        <p class="tiny">Latest activity</p>
+        <strong>${latest ? `${esc(latest.loadNumber)} - ${esc(loadStatusLabel(latest.status))}` : 'No loads yet'}</strong>
+        <p class="tiny">${latest ? fmt(loadLastActivity(latest)) : 'Save customer locations or create a load to start tracking.'}</p>
+      </div>
+      <div>
+        <p class="tiny">Assigned drivers</p>
+        <strong>${esc(record.drivers.slice(0, 3).join(', ') || 'Unassigned')}</strong>
+        <p class="tiny">${record.drivers.length > 3 ? `${record.drivers.length - 3} more driver(s)` : 'Current load driver coverage'}</p>
+      </div>
+    </div>
+    <div class="customer-track-stops">
+      ${recentLoads.map(load => `<div>
+        <span>${esc(load.loadNumber)}</span>
+        <strong>${esc(load.pickupName || load.pickupAddress || 'Pickup')}</strong>
+        <p>${esc(load.deliveryName || load.deliveryAddress || 'Delivery')}</p>
+        <small>${esc(loadStatusLabel(load.status))} &middot; ${driverName(load.driverId)}</small>
+      </div>`).join('') || '<p class="tiny">No load history for this customer yet.</p>'}
+    </div>
+    <div class="customer-contact-strip">
+      ${(record.contacts.length ? record.contacts.slice(0, 2) : record.addresses.slice(0, 2)).map(item => `<span>${esc(item.contactName || item.name || 'Site contact')} ${item.phone ? `&middot; ${esc(item.phone)}` : ''}${item.hours ? ` &middot; ${esc(item.hours)}` : ''}</span>`).join('') || '<span>No saved contacts yet</span>'}
+    </div>
+    <button class="btn ghost small-btn copy-customer-update" type="button" data-customer="${attr(record.name)}">Copy Customer Update</button>
+  </article>`;
+}
+
 function renderSettings() {
   return `
     <div class="two-col">
@@ -1428,6 +1547,9 @@ function bindView(view) {
     if (form) form.onsubmit = submitJsonForm('/api/addresses');
     bindAddressInputs();
   }
+  if (view === 'customerTracking') {
+    bindCustomerTracking();
+  }
   if (view === 'map') {
     startMapRefresh();
     setTimeout(initActualMap, 0);
@@ -1502,6 +1624,23 @@ function bindListFilters() {
       });
       const empty = target.querySelector('[data-filter-empty]');
       if (empty) empty.hidden = visible > 0;
+    };
+  });
+}
+
+function bindCustomerTracking() {
+  const records = customerTrackingRecords();
+  document.querySelectorAll('.copy-customer-update').forEach(btn => {
+    btn.onclick = async () => {
+      const record = records.find(item => item.name === btn.dataset.customer);
+      if (!record) return;
+      const text = customerUpdateText(record);
+      try {
+        await navigator.clipboard.writeText(text);
+        setToast('Customer update copied', 'success');
+      } catch {
+        setToast(text, 'success');
+      }
     };
   });
 }

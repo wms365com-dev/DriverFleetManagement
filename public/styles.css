@@ -132,6 +132,21 @@ textarea { min-height: 88px; resize: vertical; }
 .address-chip-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .address-chip { display:inline-flex; align-items:center; gap:8px; max-width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.04); color:var(--text); font-size:12px; }
 .address-chip small { color:var(--muted); text-transform:uppercase; font-size:10px; }
+.customer-summary { margin-bottom:16px; }
+.customer-tracking-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px; }
+.customer-track-card { border:1px solid var(--line); border-radius:20px; padding:16px; background:rgba(255,255,255,.03); display:grid; gap:14px; }
+.customer-track-head, .customer-track-detail { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+.customer-track-head strong { font-size:18px; }
+.customer-track-metrics { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+.customer-track-metrics span { border:1px solid var(--line); border-radius:14px; padding:10px; background:rgba(255,255,255,.025); color:var(--muted); font-size:12px; }
+.customer-track-metrics b { display:block; color:var(--text); font-size:22px; }
+.customer-track-detail > div { min-width:0; flex:1; display:grid; gap:4px; }
+.customer-track-stops { display:grid; gap:8px; }
+.customer-track-stops div { border-left:3px solid rgba(67,166,255,.5); padding:8px 10px; border-radius:0 12px 12px 0; background:rgba(67,166,255,.055); }
+.customer-track-stops span, .customer-track-stops small { color:var(--muted); font-size:12px; }
+.customer-track-stops strong, .customer-track-stops p { display:block; overflow-wrap:anywhere; }
+.customer-contact-strip { display:flex; flex-wrap:wrap; gap:8px; }
+.customer-contact-strip span { padding:8px 10px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); color:var(--muted); font-size:12px; max-width:100%; overflow-wrap:anywhere; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
@@ -198,6 +213,8 @@ tbody tr:hover { background: rgba(67,166,255,.045); }
   .sidebar, .topbar, .panel, .metric-card { border-radius: 22px; }
   .demo-grid, .dashboard-grid, .compact-metrics, .split { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; flex-direction: column; }
+  .customer-tracking-grid { grid-template-columns:1fr; }
+  .customer-track-head, .customer-track-detail { flex-direction:column; }
   .btn { width:100%; }
   .panel-head { align-items:flex-start; flex-direction:column; }
 }
