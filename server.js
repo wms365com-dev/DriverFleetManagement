@@ -28,6 +28,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(['/portal', '/login', '/app'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/signup', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'signup.html')));
+app.get(['/tracking', '/track'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tracking.html')));
 app.get('/track/:token', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tracking.html')));
 
 function parseCookies(req) {

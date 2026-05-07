@@ -18,18 +18,21 @@
   <main class="tracking-shell">
     <section class="tracking-card">
       <div class="tracking-brand">
-        <span>D365</span>
-        <strong>Dispatcher365</strong>
+        <a href="/" class="tracking-brand-link"><span>D365</span><strong>Dispatcher365</strong></a>
+        <a href="/portal">Log In</a>
       </div>
       <div id="trackingRoot" class="tracking-content">
         <p class="eyebrow">Customer Tracking</p>
-        <h1>Loading shipment status...</h1>
+        <h1>Track your shipment.</h1>
       </div>
     </section>
   </main>
   <script>
     const root = document.getElementById('trackingRoot');
-    const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    const pathId = pathParts[0] === 'track' && pathParts[1] ? pathParts.slice(1).join('/') : '';
+    const queryId = new URLSearchParams(location.search).get('id') || '';
+    const initialTrackingId = decodeURIComponent(pathId || queryId || '');
     const statusLabels = {
       new: 'Created',
       assigned: 'Assigned',
@@ -53,6 +56,17 @@
     const fmt = value => value ? new Date(value).toLocaleString() : 'Not scheduled';
     const label = status => statusLabels[status] || String(status || 'new').replaceAll('_', ' ');
     const statusClass = status => String(status || 'new').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+    const trackingForm = (value = '', message = '') => `
+      <div class="tracking-lookup">
+        <p class="eyebrow">Shipment Tracking</p>
+        <h1>Track your shipment.</h1>
+        <p>Enter the tracking/load number provided by dispatch.</p>
+        <form id="trackingLookupForm" class="tracking-lookup-form">
+          <label>Tracking ID<input name="trackingId" value="${esc(value)}" placeholder="Example: DEMO0001-2026-000001" autocomplete="off" required /></label>
+          <button class="btn primary" type="submit">Track Shipment</button>
+        </form>
+        ${message ? `<p class="tracking-message">${esc(message)}</p>` : ''}
+      </div>`;
 
     function render(load) {
       const events = [...(load.events || [])].sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
@@ -103,14 +117,30 @@
     }
 
     async function init() {
+      const trackingId = initialTrackingId.trim();
+      if (!trackingId) {
+        root.innerHTML = trackingForm();
+        bindLookupForm();
+        return;
+      }
       try {
-        const res = await fetch(`/api/public/loads/${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/public/loads/${encodeURIComponent(trackingId)}`);
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || 'Tracking link not found');
         render(body);
       } catch (error) {
-        root.innerHTML = `<p class="eyebrow">Customer Tracking</p><h1>Tracking link unavailable.</h1><p>${esc(error.message)}</p>`;
+        root.innerHTML = trackingForm(trackingId, error.message);
+        bindLookupForm();
       }
+    }
+    function bindLookupForm() {
+      const form = document.getElementById('trackingLookupForm');
+      if (!form) return;
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        const id = new FormData(form).get('trackingId').trim();
+        if (id) window.location.href = `/track/${encodeURIComponent(id)}`;
+      });
     }
     init();
   </script>

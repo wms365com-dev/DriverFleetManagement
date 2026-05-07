@@ -899,7 +899,7 @@ const fileDb = {
   async getPublicLoadByToken(token) {
     const normalized = String(token || '').trim();
     if (!normalized) return null;
-    const load = readFileDb().loads.find(l => l.publicTrackingToken === normalized);
+    const load = readFileDb().loads.find(l => l.publicTrackingToken === normalized || String(l.loadNumber || '').toLowerCase() === normalized.toLowerCase());
     return load ? mapLoad(load) : null;
   },
   async updateLoadStatus(companyId, id, status, note, user) {
@@ -1126,7 +1126,7 @@ const pgDb = {
   async getPublicLoadByToken(token) {
     const normalized = String(token || '').trim();
     if (!normalized) return null;
-    const r = await pool.query('SELECT * FROM loads WHERE public_tracking_token=$1 LIMIT 1', [normalized]);
+    const r = await pool.query('SELECT * FROM loads WHERE public_tracking_token=$1 OR lower(load_number)=lower($1) LIMIT 1', [normalized]);
     return r.rows[0] ? mapLoad(r.rows[0]) : null;
   },
   async updateLoadStatus(companyId, id, status, note, user) {
