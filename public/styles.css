@@ -166,6 +166,10 @@ tbody tr:hover { background: rgba(67,166,255,.045); }
 .inline-check { grid-template-columns: auto 1fr; align-items: center; }
 .photo-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .photo-row img { width: 74px; height: 74px; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); }
+.document-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+.document-card { color:var(--text); text-decoration:none; border:1px solid var(--line); border-radius:18px; padding:10px; background:rgba(255,255,255,.03); display:grid; gap:10px; }
+.document-card:hover { border-color:rgba(67,166,255,.35); background:rgba(67,166,255,.08); }
+.document-card img { width:100%; aspect-ratio: 4 / 3; object-fit:cover; border-radius:12px; border:1px solid var(--line); }
 .stack-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .small-btn { padding: 10px 12px; border-radius: 12px; margin-top: 10px; }
 .mini-actions { display:flex; gap:8px; flex-wrap:wrap; }

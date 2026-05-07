@@ -68,6 +68,20 @@ const loadStatusFlow = [
   ['at_delivery', 'At Delivery'],
   ['delivered', 'Confirm Delivery']
 ];
+const staffOperationsNav = [
+  ['dispatchHome', 'Dashboard'],
+  ['loads', 'Dispatch / Loads'],
+  ['map', 'Live Map'],
+  ['drivers', 'Drivers'],
+  ['vehicles', 'Equipment'],
+  ['inspections', 'Inspections'],
+  ['issues', 'Defects / Repairs'],
+  ['maintenance', 'Maintenance'],
+  ['documents', 'Documents'],
+  ['reports', 'Reports'],
+  ['settings', 'Settings'],
+  ['bugReports', 'Bug Reports']
+];
 
 function setToast(message, type = '') {
   const toast = document.getElementById('toast');
@@ -360,30 +374,32 @@ function getNavItems() {
     return [['driver', 'Check-In'], ['driverWork', 'Assigned Work'], ['bugReports', 'Report Bug']];
   }
   if (state.user?.role === 'support_staff') {
-    return [
-      ['dispatchHome', 'Dispatch Home'],
-      ['loads', 'Loads'],
-      ['map', 'Live Map'],
-      ['shifts', 'Shift Monitor'],
-      ['inspections', 'Inspections'],
-      ['issues', 'Issue Queue'],
-      ['bugReports', 'Bug Reports']
-    ];
+    return staffOperationsNav.filter(([view]) => !['settings'].includes(view));
   }
   if (state.user?.role === 'admin') {
     return [
-      ['adminHome', 'Admin Home'],
-      ['users', 'Users'],
+      ['adminHome', 'Dashboard'],
+      ['loads', 'Dispatch / Loads'],
+      ['map', 'Live Map'],
       ['drivers', 'Drivers'],
-      ['vehicles', 'Vehicles'],
+      ['vehicles', 'Equipment'],
       ['assignments', 'Assignments'],
+      ['inspections', 'Inspections'],
+      ['issues', 'Defects / Repairs'],
+      ['maintenance', 'Maintenance'],
+      ['documents', 'Documents'],
+      ['reports', 'Reports'],
+      ['users', 'Users'],
+      ['settings', 'Settings'],
       ['bugReports', 'Bug Reports']
     ];
   }
   return [
-    ['platformHome', 'Platform Home'],
+    ['platformHome', 'Dashboard'],
     ['companies', 'Companies'],
     ['users', 'Company Users'],
+    ['reports', 'Reports'],
+    ['settings', 'Settings'],
     ['bugReports', 'Bug Reports']
   ];
 }
@@ -460,11 +476,15 @@ function getViewTitle(view) {
     dashboard: 'Dispatch Dashboard',
     map: 'Live Driver Map',
     drivers: 'Driver Records',
-    vehicles: 'Fleet Vehicles',
+    vehicles: 'Equipment',
     assignments: 'Driver Assignments',
     shifts: 'Shift Timeline',
     inspections: 'Inspection Feed',
-    issues: 'Issue Queue',
+    issues: 'Defects / Repairs',
+    maintenance: 'Maintenance',
+    documents: 'Documents',
+    reports: 'Reports',
+    settings: 'Settings',
     bugReports: 'Bug Reports',
     driverWork: 'Assigned Work',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
@@ -510,6 +530,10 @@ function renderView(view) {
   if (view === 'shifts') return renderShifts();
   if (view === 'inspections') return renderInspections();
   if (view === 'issues') return renderIssues();
+  if (view === 'maintenance') return renderMaintenance();
+  if (view === 'documents') return renderDocuments();
+  if (view === 'reports') return renderReports();
+  if (view === 'settings') return renderSettings();
   if (view === 'bugReports') return renderBugReports();
   if (view === 'driverWork') return renderDriverWorkPage();
   return renderDriverWorkspace();
@@ -601,6 +625,7 @@ function renderPlatformHome() {
 
 function renderAdminHome() {
   const activeAssignments = state.assignments.filter(a => a.active).length;
+  const openDefects = state.issues.filter(issue => issue.status !== 'closed').length;
   return `
     <div class="role-home">
       <section class="panel glass">
@@ -610,12 +635,16 @@ function renderAdminHome() {
           <div class="metric-card glass"><span>Drivers</span><strong>${state.drivers.length}</strong></div>
           <div class="metric-card glass"><span>Vehicles</span><strong>${state.vehicles.length}</strong></div>
           <div class="metric-card glass"><span>Assignments</span><strong>${activeAssignments}</strong></div>
+          <div class="metric-card glass"><span>Open Defects</span><strong>${openDefects}</strong></div>
         </div>
         <div class="quick-action-grid action-grid">
+          <button class="list-card action-card" data-view-link="loads"><strong>Dispatch / Loads</strong><span>Create and review assigned work.</span></button>
           <button class="list-card action-card" data-view-link="users"><strong>Users</strong><span>Create admin and dispatcher logins.</span></button>
           <button class="list-card action-card" data-view-link="drivers"><strong>Drivers</strong><span>Create driver records and driver logins.</span></button>
-          <button class="list-card action-card" data-view-link="vehicles"><strong>Vehicles</strong><span>Maintain fleet units and status.</span></button>
+          <button class="list-card action-card" data-view-link="vehicles"><strong>Equipment</strong><span>Maintain fleet units and status.</span></button>
           <button class="list-card action-card" data-view-link="assignments"><strong>Assignments</strong><span>Assign one active vehicle per driver.</span></button>
+          <button class="list-card action-card" data-view-link="maintenance"><strong>Maintenance</strong><span>Review units needing repair or service.</span></button>
+          <button class="list-card action-card" data-view-link="reports"><strong>Reports</strong><span>Review fleet activity summaries.</span></button>
         </div>
       </section>
     </div>`;
@@ -641,11 +670,13 @@ function renderDispatchHome() {
           <div class="metric-card glass"><span>Active Loads</span><strong>${activeLoads().length}</strong></div>
         </div>
         <div class="quick-action-grid action-grid">
-          <button class="list-card action-card" data-view-link="loads"><strong>Loads</strong><span>Create loads and monitor pickup/delivery.</span></button>
+          <button class="list-card action-card" data-view-link="loads"><strong>Dispatch / Loads</strong><span>Create loads and monitor pickup/delivery.</span></button>
           <button class="list-card action-card" data-view-link="map"><strong>Live Map</strong><span>Monitor driver GPS updates.</span></button>
           <button class="list-card action-card" data-view-link="shifts"><strong>Shift Monitor</strong><span>Review check-ins and check-outs.</span></button>
           <button class="list-card action-card" data-view-link="inspections"><strong>Inspections</strong><span>Review submitted vehicle inspections.</span></button>
-          <button class="list-card action-card" data-view-link="issues"><strong>Issue Queue</strong><span>Track open defects and closures.</span></button>
+          <button class="list-card action-card" data-view-link="issues"><strong>Defects / Repairs</strong><span>Track open defects and closures.</span></button>
+          <button class="list-card action-card" data-view-link="documents"><strong>Documents</strong><span>Review BOL, POD, and uploaded photos.</span></button>
+          <button class="list-card action-card" data-view-link="reports"><strong>Reports</strong><span>Summarize loads, inspections, and defects.</span></button>
         </div>
       </section>
       <section class="panel glass">
@@ -970,6 +1001,108 @@ function renderIssues() {
       ${listSearch('issueList', 'Search vehicle, driver, severity, or description')}
       <div class="issue-list" data-filter-list="issueList">${state.issues.map(i => `<article class="issue-card" data-search="${searchableText(vehicleName(i.vehicleId), driverName(i.driverId), i.category, i.severity, i.status, i.description)}"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${attr(i.id)}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || emptyState('No issues reported', 'Vehicle defects and driver issue reports will appear here.')}<div data-filter-empty hidden>${emptyState('No matching issues', 'Try another vehicle, driver, severity, or keyword.')}</div></div>
     </section>`;
+}
+
+function renderMaintenance() {
+  const defectVehicles = new Set(state.issues.filter(issue => issue.status !== 'closed' && issue.vehicleId).map(issue => Number(issue.vehicleId)));
+  const needsService = state.vehicles.filter(vehicle => ['needs_review', 'out_of_service'].includes(vehicle.status) || defectVehicles.has(Number(vehicle.id)));
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Maintenance Queue</h3><p>Vehicles needing review, repair, or service follow-up.</p></div>
+        ${listSearch('maintenanceList', 'Search unit, status, or repair note')}
+        <div class="issue-list" data-filter-list="maintenanceList">
+          ${needsService.map(vehicle => {
+            const openDefects = state.issues.filter(issue => issue.status !== 'closed' && Number(issue.vehicleId) === Number(vehicle.id));
+            return `<article class="issue-card" data-search="${searchableText(vehicle.unitNumber, vehicle.plateNumber, vehicle.status, typeLabel(vehicle.type), openDefects.map(issue => issue.description).join(' '))}">
+              <div class="panel-head"><div><strong>${esc(vehicle.unitNumber)}</strong><p class="tiny">${esc(typeLabel(vehicle.type))} &middot; ${esc(vehicle.plateNumber || 'No plate')}</p></div>${statusTag(vehicle.status)}</div>
+              <p>${openDefects.length ? `${openDefects.length} open defect${openDefects.length === 1 ? '' : 's'} to review.` : 'No open defect attached; status needs review.'}</p>
+              <div class="tiny">Odometer: ${(vehicle.odometer || 0).toLocaleString()} km</div>
+            </article>`;
+          }).join('') || emptyState('No maintenance items', 'Vehicles marked needs review, out of service, or tied to open defects will appear here.')}
+          <div data-filter-empty hidden>${emptyState('No matching maintenance items', 'Try another unit number, plate, or status.')}</div>
+        </div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Service Planning</h3><p>Starter workflow for repairs and preventive maintenance.</p></div>
+        <div class="list-grid">
+          <article class="list-card"><strong>Next build step</strong><p class="tiny">Add work orders, service intervals, repair vendors, and completion notes.</p></article>
+          <article class="list-card"><strong>Current source</strong><p class="tiny">This queue is driven by vehicle status and open defects.</p></article>
+        </div>
+      </section>
+    </div>`;
+}
+
+function renderDocuments() {
+  const loadDocs = state.loads.flatMap(load => (load.documents || []).map(doc => ({ ...doc, load })));
+  const inspectionDocs = state.inspections.flatMap(inspection => (inspection.photos || []).map(photo => ({ ...photo, type: 'inspection', inspection })));
+  const bugDocs = state.bugReports.flatMap(report => (report.photos || []).map(photo => ({ ...photo, type: 'bug', report })));
+  const docs = [...loadDocs, ...inspectionDocs, ...bugDocs].sort((a, b) => String(b.uploadedAt || b.createdAt || '').localeCompare(String(a.uploadedAt || a.createdAt || '')));
+  return `
+    <section class="panel glass">
+      <div class="panel-head"><h3>Documents</h3><p>BOL, POD, receipts, inspection photos, and issue screenshots.</p></div>
+      ${listSearch('documentList', 'Search load, type, note, or source')}
+      <div class="document-grid" data-filter-list="documentList">
+        ${docs.map(doc => {
+          const source = doc.load ? `Load ${doc.load.loadNumber}` : doc.inspection ? `Inspection #${doc.inspection.id}` : doc.report ? `Bug #${doc.report.id}` : 'Document';
+          const url = doc.url || '';
+          return `<a class="document-card" href="${attr(url)}" target="_blank" rel="noopener" data-search="${searchableText(source, doc.type, doc.note, doc.filename, doc.load?.pickupAddress, doc.load?.deliveryAddress)}">
+            ${url ? `<img src="${attr(url)}" alt="${attr(doc.type || 'document')}" />` : ''}
+            <div><strong>${esc(source)}</strong><p class="tiny">${esc(doc.type || 'document')}${doc.note ? ` &middot; ${esc(doc.note)}` : ''}</p></div>
+          </a>`;
+        }).join('') || emptyState('No documents yet', 'Driver uploads for BOL, POD, receipts, inspections, and bug reports will appear here.')}
+        <div data-filter-empty hidden>${emptyState('No matching documents', 'Try another load number, document type, or note.')}</div>
+      </div>
+    </section>`;
+}
+
+function renderReports() {
+  const delivered = state.loads.filter(load => load.status === 'delivered').length;
+  const openDefects = state.issues.filter(issue => issue.status !== 'closed').length;
+  const missingGps = state.drivers.filter(driver => !driver.lastSeenAt).length;
+  const docCount = state.loads.reduce((count, load) => count + (load.documents || []).length, 0);
+  return `
+    <div class="dashboard-grid">
+      <div class="metric-card glass"><span>Total Loads</span><strong>${state.loads.length}</strong></div>
+      <div class="metric-card glass"><span>Delivered Loads</span><strong>${delivered}</strong></div>
+      <div class="metric-card glass"><span>Open Defects</span><strong>${openDefects}</strong></div>
+      <div class="metric-card glass"><span>Load Documents</span><strong>${docCount}</strong></div>
+      <section class="panel glass span-2">
+        <div class="panel-head"><h3>Operational Reports</h3><p>Quick summaries for dispatch and management.</p></div>
+        <div class="list-grid">
+          <article class="list-card"><strong>Driver Activity</strong><p class="tiny">${state.shifts.length} shifts recorded. ${missingGps} driver${missingGps === 1 ? '' : 's'} have no GPS update yet.</p></article>
+          <article class="list-card"><strong>Inspection Compliance</strong><p class="tiny">${state.inspections.length} inspections submitted, ${state.inspections.filter(i => i.overallStatus === 'fail').length} failed.</p></article>
+          <article class="list-card"><strong>Defect Aging</strong><p class="tiny">${openDefects} open defects need review or closure.</p></article>
+        </div>
+      </section>
+      <section class="panel glass span-2">
+        <div class="panel-head"><h3>Future Exports</h3><p>CSV/PDF exports can be added here next.</p></div>
+        ${emptyState('Reports are summarized on-screen', 'Next step: add export buttons for inspections, loads, defects, and driver activity.')}
+      </section>
+    </div>`;
+}
+
+function renderSettings() {
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Company Settings</h3><p>Operational setup for this company workspace.</p></div>
+        <div class="list-grid">
+          <article class="list-card"><strong>Company</strong><p class="tiny">${esc(getCurrentCompany()?.name || 'No company selected')}</p></article>
+          <article class="list-card"><strong>Equipment Types</strong><p class="tiny">${equipmentTypes.length} power unit and trailer/equipment options available.</p></article>
+          <article class="list-card"><strong>Inspection Checklist</strong><p class="tiny">${inspectionItems.length} inspection items active.</p></article>
+          <article class="list-card"><strong>Address Autocomplete</strong><p class="tiny">Saved company addresses are active. Geoapify is enabled when GEOAPIFY_API_KEY is configured in Railway.</p></article>
+        </div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Configuration Roadmap</h3><p>Items to make editable in the next pass.</p></div>
+        <div class="list-grid">
+          <article class="list-card"><strong>Custom checklists</strong><p class="tiny">Per-equipment inspection templates.</p></article>
+          <article class="list-card"><strong>Notification rules</strong><p class="tiny">Late check-ins, failed inspections, and delivery exceptions.</p></article>
+          <article class="list-card"><strong>Address book management</strong><p class="tiny">Edit, merge, and archive saved locations.</p></article>
+        </div>
+      </section>
+    </div>`;
 }
 
 function renderBugReports() {
