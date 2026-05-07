@@ -600,6 +600,28 @@ function mapGeoapifySuggestion(item) {
 function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
 }
+function inspectionIsCurrent(inspection, driverId, vehicleId) {
+  const inspectedAt = new Date(inspection.inspectionTime || inspection.createdAt || 0).getTime();
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+  return Number(inspection.driverId) === Number(driverId)
+    && Number(inspection.vehicleId) === Number(vehicleId)
+    && inspectedAt >= cutoff
+    && !['fail'].includes(String(inspection.overallStatus || '').toLowerCase());
+}
+async function requireCurrentVehicleInspection(companyId, driverId, vehicleId) {
+  const [inspections, vehicles] = await Promise.all([
+    db.getInspections(companyId),
+    db.getVehicles(companyId)
+  ]);
+  const vehicle = vehicles.find(item => Number(item.id) === Number(vehicleId));
+  if (!vehicle) throw new Error('Assigned vehicle was not found.');
+  if (vehicle.status === 'out_of_service') throw new Error(`${vehicle.unitNumber || 'Vehicle'} is out of service and cannot be used for work.`);
+  const current = inspections
+    .filter(item => inspectionIsCurrent(item, driverId, vehicleId))
+    .sort((a, b) => String(b.inspectionTime || '').localeCompare(String(a.inspectionTime || '')))[0];
+  if (!current) throw new Error('Complete a pre-trip inspection for this assigned vehicle before becoming ready for work.');
+  return current;
+}
 const driverLoadStatuses = new Set(['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'pod_uploaded', 'closed', 'exception']);
 function bugPayload(body, files = []) {
   return {
@@ -827,6 +849,7 @@ app.post('/api/shifts/start', auth, requireCompanyScope, requireDriverProfile, a
     const driverId = req.sessionUser.role === 'driver' ? Number(req.sessionUser.linkedDriverId) : Number(req.body.driverId || 0);
     const vehicleId = Number(req.body.vehicleId);
     requireAssignedVehicle(req, vehicleId);
+    await requireCurrentVehicleInspection(req.companyId, driverId, vehicleId);
     const shift = await db.startShift(req.companyId, driverId, vehicleId, Number(req.body.startOdometer) || 0);
     res.json(shift);
   } catch (error) {
@@ -1034,6 +1057,9 @@ app.patch('/api/loads/:id/status', auth, requireCompanyScope, requireDriverProfi
     if (!canDriverAccessLoad(req, load)) return res.status(403).json({ error: 'Drivers can only update assigned loads' });
     const status = String(req.body.status || '').trim();
     if (isDriver(req) && !driverLoadStatuses.has(status)) return res.status(400).json({ error: 'Invalid driver load status' });
+    if (isDriver(req) && status !== 'exception') {
+      await requireCurrentVehicleInspection(req.companyId, Number(req.sessionUser.linkedDriverId), Number(load.vehicleId));
+    }
     validateLoadCloseRequirements(load, status);
     const updated = await db.updateLoadStatus(req.companyId, load.id, status, req.body.note || '', req.sessionUser);
     if (status && status !== load.status) {

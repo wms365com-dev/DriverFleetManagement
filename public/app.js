@@ -431,6 +431,15 @@ function driverActiveLoad(driverId) {
 function vehicleActiveLoad(vehicleId) {
   return activeLoads().find(load => Number(load.vehicleId) === Number(vehicleId) || Number(load.trailerId) === Number(vehicleId)) || null;
 }
+function currentVehicleInspection(driverId, vehicleId) {
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+  return state.inspections
+    .filter(item => Number(item.driverId) === Number(driverId)
+      && Number(item.vehicleId) === Number(vehicleId)
+      && new Date(item.inspectionTime || item.createdAt || 0).getTime() >= cutoff
+      && String(item.overallStatus || '').toLowerCase() !== 'fail')
+    .sort((a, b) => String(b.inspectionTime || '').localeCompare(String(a.inspectionTime || '')))[0] || null;
+}
 function driverAvailableForLoad(driver) {
   return driver && driver.status === 'active' && !driverActiveLoad(driver.id);
 }
@@ -1880,6 +1889,8 @@ function renderDriverWorkspace() {
   const assignment = state.assignments.find(a => a.driverId === driverId && a.active);
   const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
   const activeShift = state.shifts.find(s => s.driverId === driverId && s.status === 'started');
+  const readyInspection = vehicle ? currentVehicleInspection(driverId, vehicle.id) : null;
+  const canStartWork = vehicle && readyInspection && vehicle.status !== 'out_of_service';
 
   return `
     <section class="mobile-stage">
@@ -1895,7 +1906,7 @@ function renderDriverWorkspace() {
               <p class="eyebrow">Driver workspace</p>
               <h2>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</h2>
             </div>
-            ${activeShift ? statusTag('started') : statusTag('ready')}
+            ${activeShift ? statusTag('started') : canStartWork ? statusTag('ready') : statusTag('inspection required')}
           </div>
           <div class="mobile-card primary-card">
             <div><p class="tiny">Assigned vehicle</p><strong>${vehicle ? esc(vehicle.unitNumber) : 'Not assigned'}</strong></div>
@@ -1906,12 +1917,13 @@ function renderDriverWorkspace() {
               <div class="mobile-mini-card gps-status-card" id="gpsStatusCard" data-status="${driver.lastSeenAt ? 'tracking' : 'idle'}"><span>GPS Status</span><strong id="gpsStatusTitle">${driver.lastSeenAt ? 'Tracking active' : 'Not tracking'}</strong><small id="gpsStatusMessage">${driver.lastSeenAt ? 'Driver location is updating.' : 'Tap Allow GPS to start location tracking.'}</small><small id="gpsStatusMeta">${driver.lastSeenAt ? fmt(driver.lastSeenAt) : ''}</small><div class="mini-actions"><button class="btn primary small-btn" type="button" id="allowGpsBtn">Allow GPS</button><button class="btn ghost small-btn" type="button" id="syncGpsBtn">Sync Now</button></div></div>
               <div class="mobile-mini-card"><span>Open issues</span><strong>${state.issues.filter(i => Number(i.driverId) === Number(driver.id) && i.status !== 'closed').length}</strong><small>Need attention</small></div>
             </div>
-            ${vehicle && !activeShift ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : ''}
+            ${vehicle && !activeShift ? (canStartWork ? `<form id="startShiftForm" class="stack compact"><input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" /><label>Start odometer<input type="number" name="startOdometer" required /></label><button class="btn primary" type="submit" id="startShiftBtn">Start Shift</button></form>` : `<div class="mobile-mini-card readiness-lock"><span>Ready for work locked</span><strong>Inspection required</strong><small>Submit a pre-trip inspection for ${esc(vehicle.unitNumber)} before starting your shift or updating assigned work.</small></div>`) : ''}
             ${activeShift ? `<form id="endShiftForm" class="stack compact"><input type="hidden" name="shiftId" value="${attr(activeShift.id)}" /><label>End odometer<input type="number" name="endOdometer" required /></label><button class="btn ghost" type="submit" id="endShiftBtn">End Shift</button></form>` : ''}
           </div>
           ${vehicle ? `
             <form id="inspectionForm" class="mobile-card stack compact" enctype="multipart/form-data">
               <h3>Pre-trip Inspection</h3>
+              ${readyInspection ? `<p class="tiny">Current inspection submitted ${fmt(readyInspection.inspectionTime)}. Submit a new one after changing vehicles or starting a new work day.</p>` : `<p class="tiny">Required before this driver can be ready for work.</p>`}
               <input type="hidden" name="vehicleId" value="${attr(vehicle.id)}" />
               <input type="hidden" name="shiftId" value="${attr(activeShift?.id || '')}" />
               <label>Current odometer<input type="number" name="odometer" required /></label>
@@ -1967,14 +1979,16 @@ function renderDriverWorkPage() {
 function renderDriverLoadCard(load) {
   const nextStatus = nextLoadStatus(load);
   const missing = loadMissingDocs(load);
+  const hasReadyInspection = currentVehicleInspection(load.driverId, load.vehicleId);
   return `<article class="load-card driver-load-card">
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
     ${renderLoadChecklist(load)}
     ${missing.length ? `<p class="tiny">Upload required proof before delivery close: ${missing.map(docTypeLabel).join(', ')}</p>` : ''}
+    ${!hasReadyInspection ? `<p class="tiny readiness-warning">Pre-trip inspection required before updating this load.</p>` : ''}
     <div class="load-actions">
-      ${loadStatusFlow.map(([status, label]) => `<button class="btn ${status === nextStatus ? 'primary' : 'ghost'} small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}">${esc(label)}</button>`).join('')}
+      ${loadStatusFlow.map(([status, label]) => `<button class="btn ${status === nextStatus ? 'primary' : 'ghost'} small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}" ${!hasReadyInspection ? 'disabled' : ''}>${esc(label)}</button>`).join('')}
       <button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="exception">Exception</button>
     </div>
     <form class="load-doc-form stack compact" data-load-doc="${attr(load.id)}" enctype="multipart/form-data">

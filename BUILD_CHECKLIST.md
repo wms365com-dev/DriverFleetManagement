@@ -55,6 +55,7 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 
 ## Driver App
 
+- [x] Require pre-trip vehicle inspection before driver can be ready for work.
 - [ ] Cleaner mobile "My Work Today".
 - [ ] One-tap status buttons.
 - [ ] Required photo/signature checklist before delivery can close.
