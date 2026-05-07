@@ -413,7 +413,7 @@ function loadStatusTag(load) {
   return statusTag(load.status || 'new');
 }
 function activeLoads() {
-  return state.loads.filter(load => !['delivered', 'cancelled'].includes(load.status));
+  return state.loads.filter(load => !['delivered', 'pod_uploaded', 'closed', 'cancelled'].includes(load.status));
 }
 function nextLoadStatus(load) {
   const currentIndex = loadStatusFlow.findIndex(([status]) => status === load.status);
@@ -422,6 +422,25 @@ function nextLoadStatus(load) {
 }
 function driverActiveLoad(driverId) {
   return activeLoads().find(load => Number(load.driverId) === Number(driverId)) || null;
+}
+function vehicleActiveLoad(vehicleId) {
+  return activeLoads().find(load => Number(load.vehicleId) === Number(vehicleId) || Number(load.trailerId) === Number(vehicleId)) || null;
+}
+function driverAvailableForLoad(driver) {
+  return driver && driver.status === 'active' && !driverActiveLoad(driver.id);
+}
+function vehicleAvailableForLoad(vehicle) {
+  return vehicle && vehicle.status !== 'out_of_service' && !vehicleActiveLoad(vehicle.id);
+}
+function driverOptionLabel(driver) {
+  const activeLoad = driverActiveLoad(driver.id);
+  const status = driver.status !== 'active' ? ` - ${driver.status}` : activeLoad ? ` - on ${activeLoad.loadNumber}` : '';
+  return `${driver.firstName || ''} ${driver.lastName || ''}`.trim() + status;
+}
+function vehicleOptionLabel(vehicle) {
+  const activeLoad = vehicleActiveLoad(vehicle.id);
+  const status = vehicle.status === 'out_of_service' ? ' - out of service' : activeLoad ? ` - on ${activeLoad.loadNumber}` : '';
+  return `${vehicle.unitNumber} - ${typeLabel(vehicle.type)}${status}`;
 }
 function trackingAge(driver) {
   return hasUsableCoords(driver) && driver?.lastSeenAt ? Date.now() - new Date(driver.lastSeenAt).getTime() : Infinity;
@@ -1408,8 +1427,8 @@ function renderLoadTypeFields() {
 }
 
 function renderLoads() {
-  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
-  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}" ${vehicleAvailableForLoad(v) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
+  const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}" ${vehicleAvailableForLoad(v) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
   const customers = uniqueCustomers();
   const pickupLocations = addressSuggestions('pickup');
   const deliveryLocations = addressSuggestions('delivery');
@@ -1452,7 +1471,9 @@ function renderLoads() {
           <div class="form-step"><span>3</span><strong>Freight and Assignment</strong></div>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
-          <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}">${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
+          <div class="split"><label class="inline-check"><input type="checkbox" name="hazmatRequired" value="true" /> Hazmat required</label><label class="inline-check"><input type="checkbox" name="temperatureControlled" value="true" /> Temperature controlled</label></div>
+          <label class="inline-check"><input type="checkbox" name="generalLiftgateRequired" value="true" /> Liftgate required</label>
+          <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${driverAvailableForLoad(d) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
           <label>Power unit<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
           <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
           <div class="compatibility-note" id="equipmentCompatibilityHint">Choose a load type to see compatible equipment.</div>
@@ -2475,17 +2496,17 @@ function refreshLoadTypeControls(form) {
     [...powerSelect.options].forEach(option => {
       if (!option.value) return;
       const vehicle = byId(state.vehicles, option.value);
-      option.disabled = vehicle ? !vehicleCompatibleWithLoad(vehicle, loadType, 'power') : false;
+      option.disabled = vehicle ? (!vehicleCompatibleWithLoad(vehicle, loadType, 'power') || !vehicleAvailableForLoad(vehicle)) : false;
     });
-    if (selectedPower && !vehicleCompatibleWithLoad(selectedPower, loadType, 'power')) powerSelect.value = '';
+    if (selectedPower && (!vehicleCompatibleWithLoad(selectedPower, loadType, 'power') || !vehicleAvailableForLoad(selectedPower))) powerSelect.value = '';
   }
   if (trailerSelect) {
     [...trailerSelect.options].forEach(option => {
       if (!option.value) return;
       const vehicle = byId(state.vehicles, option.value);
-      option.disabled = vehicle ? !vehicleCompatibleWithLoad(vehicle, loadType, 'trailer') : false;
+      option.disabled = vehicle ? (!vehicleCompatibleWithLoad(vehicle, loadType, 'trailer') || !vehicleAvailableForLoad(vehicle)) : false;
     });
-    if (!rule.trailer.length || (selectedTrailer && !vehicleCompatibleWithLoad(selectedTrailer, loadType, 'trailer'))) trailerSelect.value = '';
+    if (!rule.trailer.length || (selectedTrailer && (!vehicleCompatibleWithLoad(selectedTrailer, loadType, 'trailer') || !vehicleAvailableForLoad(selectedTrailer)))) trailerSelect.value = '';
   }
   const hint = document.getElementById('equipmentCompatibilityHint');
   if (hint) {

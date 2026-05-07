@@ -16,12 +16,12 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 - [ ] Straight truck/sprinter: POD photo/signature, access notes.
 
 ### Dispatch Assignment Logic
-- [ ] Driver availability.
-- [ ] Driver license/class compatibility.
-- [ ] Equipment status cannot be out_of_service.
-- [ ] Trailer required rules.
-- [ ] Weight/length limits.
-- [ ] Hazmat/temp/liftgate requirements.
+- [x] Driver availability.
+- [x] Driver license/class compatibility.
+- [x] Equipment status cannot be out_of_service.
+- [x] Trailer required rules.
+- [x] Weight/length limits.
+- [x] Hazmat/temp/liftgate requirements.
 
 ### Customer Portal
 - [ ] Customer search by tracking number.
@@ -77,7 +77,7 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 ## Next Best Build Order
 
 1. [x] Add required load checklist by load type.
-2. [ ] Add driver/equipment availability and out-of-service blocking.
+2. [x] Add driver/equipment availability and out-of-service blocking.
 3. [ ] Add customer tracking improvements with POD visibility.
 4. [ ] Add notification system.
 5. [ ] Add dispatch calendar/board.

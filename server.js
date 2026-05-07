@@ -194,8 +194,27 @@ const loadDocumentRequirements = {
   sprinter_van: ['pod', 'signature']
 };
 const publicDocumentTypes = new Set(['bol', 'signed_bol', 'pod', 'proof', 'delivery', 'receipt', 'delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof', 'securement_photo', 'tarp_photo']);
+const inactiveLoadStatuses = new Set(['delivered', 'pod_uploaded', 'closed', 'cancelled']);
+function isActiveLoad(load) {
+  return !inactiveLoadStatuses.has(String(load.status || 'new'));
+}
+function parseFeet(value) {
+  const match = String(value || '').match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : null;
+}
+function hasHeavyLicense(driver) {
+  const license = String(driver?.licenseClass || '').toUpperCase();
+  return license === 'A' || license.includes('AZ') || license.includes('CLASS A') || license.includes('CDL-A') || license.includes('CDL A');
+}
+function requiresHeavyLicense(payload, power, trailer) {
+  if (['container', 'flatbed'].includes(payload.loadType)) return true;
+  return ['tractor', 'day_cab', 'sleeper_cab'].includes(power?.type) || Boolean(trailer);
+}
 function loadDetailPayload(body) {
   return {
+    hazmatRequired: body.hazmatRequired === true || body.hazmatRequired === 'true',
+    temperatureControlled: body.temperatureControlled === true || body.temperatureControlled === 'true',
+    generalLiftgateRequired: body.generalLiftgateRequired === true || body.generalLiftgateRequired === 'true',
     containerNumber: String(body.containerNumber || '').trim(),
     containerSize: String(body.containerSize || '').trim(),
     portTerminal: String(body.portTerminal || '').trim(),
@@ -265,9 +284,14 @@ function equipmentName(vehicle) {
 }
 async function validateLoadCompatibility(companyId, payload) {
   const rule = loadCompatibilityRules[payload.loadType] || loadCompatibilityRules.dry_van;
-  const vehicles = await db.getVehicles(companyId);
+  const [vehicles, drivers, loads] = await Promise.all([
+    db.getVehicles(companyId),
+    db.getDrivers(companyId),
+    db.getLoads(companyId)
+  ]);
   const power = payload.vehicleId ? vehicles.find(v => Number(v.id) === Number(payload.vehicleId)) : null;
   const trailer = payload.trailerId ? vehicles.find(v => Number(v.id) === Number(payload.trailerId)) : null;
+  const driver = payload.driverId ? drivers.find(d => Number(d.id) === Number(payload.driverId)) : null;
   if (power && !rule.power.includes(power.type)) {
     throw new Error(`${equipmentName(power)} is not compatible with ${rule.label} loads.`);
   }
@@ -277,6 +301,33 @@ async function validateLoadCompatibility(companyId, payload) {
   if (!rule.trailer.length && trailer) {
     throw new Error(`${rule.label} loads should not have trailer equipment assigned.`);
   }
+  if (driver) {
+    if (driver.status !== 'active') throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ' is not active.');
+    const activeDriverLoad = loads.find(load => isActiveLoad(load) && Number(load.driverId) === Number(driver.id));
+    if (activeDriverLoad) throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ` is already assigned to active load ${activeDriverLoad.loadNumber}.`);
+    if (requiresHeavyLicense(payload, power, trailer) && !hasHeavyLicense(driver)) throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ' needs an AZ/Class A license for this load.');
+  }
+  for (const unit of [power, trailer].filter(Boolean)) {
+    if (unit.status === 'out_of_service') throw new Error(`${equipmentName(unit)} is out of service.`);
+    const activeUnitLoad = loads.find(load => isActiveLoad(load) && (Number(load.vehicleId) === Number(unit.id) || Number(load.trailerId) === Number(unit.id)));
+    if (activeUnitLoad) throw new Error(`${equipmentName(unit)} is already assigned to active load ${activeUnitLoad.loadNumber}.`);
+  }
+  const limits = [power?.maxWeight, trailer?.maxWeight].filter(value => Number(value) > 0).map(Number);
+  const maxAllowedWeight = limits.length ? Math.min(...limits) : null;
+  if (maxAllowedWeight && Number(payload.weight || 0) > maxAllowedWeight) {
+    throw new Error(`Load weight exceeds equipment limit of ${maxAllowedWeight.toLocaleString()}.`);
+  }
+  const freightLength = parseFeet(payload.loadDetails.freightDimensions || payload.loadDetails.maxPieceDimensions);
+  const unitLengths = [power?.length, trailer?.length].map(parseFeet).filter(Number.isFinite);
+  const maxLength = unitLengths.length ? Math.max(...unitLengths) : null;
+  if (freightLength && maxLength && freightLength > maxLength) throw new Error(`Freight length exceeds available equipment length of ${maxLength} ft.`);
+  const needsHazmat = Boolean(payload.loadDetails.hazmatRequired);
+  if (needsHazmat && ![power, trailer].filter(Boolean).some(unit => unit.hazmatCapable)) throw new Error('Hazmat load requires hazmat-capable equipment.');
+  const tempText = String(payload.loadDetails.temperatureRequirement || '').trim().toLowerCase();
+  const needsTemp = Boolean(payload.loadDetails.temperatureControlled) || (tempText && !['ambient', 'none', 'n/a', 'na'].includes(tempText));
+  if (needsTemp && ![power, trailer].filter(Boolean).some(unit => unit.temperatureCapable)) throw new Error('Temperature-controlled freight requires temperature-capable equipment.');
+  const needsLiftgate = payload.loadDetails.generalLiftgateRequired || String(payload.loadDetails.liftgateRequired || '').toLowerCase() === 'yes' || payload.deliveryDockType === 'tailgate';
+  if (needsLiftgate && ![power, trailer].filter(Boolean).some(unit => unit.liftgate)) throw new Error('Liftgate service requires liftgate-capable equipment.');
 }
 function loadMissingRequiredDocs(load) {
   const required = loadDocumentRequirements[load.loadType || 'dry_van'] || loadDocumentRequirements.dry_van;
