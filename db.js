@@ -86,6 +86,7 @@ function normalizeFileDb() {
   for (const vehicle of db.vehicles) {
     if (!vehicle.companyId) { vehicle.companyId = seedCompany.id; changed = true; }
     if (!vehicle.category) { vehicle.category = ['dry_van', 'reefer', 'flatbed', 'step_deck', 'container_chassis', 'trailer'].includes(vehicle.type) ? 'trailer' : 'power_unit'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(vehicle, 'imageKey')) { vehicle.imageKey = vehicle.type || ''; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(vehicle, 'length')) { vehicle.length = ''; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(vehicle, 'maxWeight')) { vehicle.maxWeight = null; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(vehicle, 'temperatureCapable')) { vehicle.temperatureCapable = false; changed = true; }
@@ -178,6 +179,7 @@ function mapVehicle(r) {
     model: r.model || '',
     year: r.year || '',
     type: r.type || '',
+    imageKey: r.image_key || r.imageKey || '',
     category: r.category || 'power_unit',
     length: r.length || '',
     maxWeight: r.max_weight ?? r.maxWeight ?? null,
@@ -366,6 +368,7 @@ async function initPostgres() {
     model TEXT,
     year INTEGER,
     type TEXT,
+    image_key TEXT,
     category TEXT NOT NULL DEFAULT 'power_unit',
     length TEXT,
     max_weight INTEGER,
@@ -515,6 +518,7 @@ async function initPostgres() {
   await pool.query(`UPDATE loads SET public_tracking_token = md5(id::text || random()::text || clock_timestamp()::text) WHERE public_tracking_token IS NULL OR public_tracking_token = ''`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS loads_public_tracking_token_unique ON loads (public_tracking_token)`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'power_unit'`);
+  await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS image_key TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS length TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS max_weight INTEGER`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS temperature_capable BOOLEAN NOT NULL DEFAULT false`);
@@ -535,7 +539,7 @@ async function initPostgres() {
       await pool.query(`INSERT INTO drivers (id,company_id,first_name,last_name,phone,email,license_number,license_class,license_expiry,status,last_lat,last_lng,last_seen_at,tracking_enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [d.id,d.companyId,d.firstName,d.lastName,d.phone,d.email,d.licenseNumber,d.licenseClass,d.licenseExpiry,d.status,d.lastLat||null,d.lastLng||null,d.lastSeenAt||null,d.trackingEnabled||false]);
     }
     for (const v of seed.vehicles) {
-      await pool.query(`INSERT INTO vehicles (id,company_id,unit_number,plate_number,vin,make,model,year,type,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, [v.id,v.companyId,v.unitNumber,v.plateNumber,v.vin,v.make,v.model,v.year,v.type,v.category || 'power_unit',v.length || '',v.maxWeight || null,!!v.temperatureCapable,!!v.liftgate,!!v.hazmatCapable,v.odometer,v.status]);
+      await pool.query(`INSERT INTO vehicles (id,company_id,unit_number,plate_number,vin,make,model,year,type,image_key,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, [v.id,v.companyId,v.unitNumber,v.plateNumber,v.vin,v.make,v.model,v.year,v.type,v.imageKey || v.type || '',v.category || 'power_unit',v.length || '',v.maxWeight || null,!!v.temperatureCapable,!!v.liftgate,!!v.hazmatCapable,v.odometer,v.status]);
     }
     for (const a of seed.assignments) {
       await pool.query(`INSERT INTO assignments (id,company_id,driver_id,vehicle_id,active,assigned_at,unassigned_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [a.id,a.companyId,a.driverId,a.vehicleId,a.active,a.assignedAt,a.unassignedAt]);
@@ -963,7 +967,7 @@ const pgDb = {
     } finally { client.release(); }
   },
   async getVehicles(companyId) { const r = await pool.query('SELECT * FROM vehicles WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapVehicle); },
-  async createVehicle(companyId, data) { const r = await pool.query(`INSERT INTO vehicles (company_id,unit_number,plate_number,vin,make,model,year,type,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [companyId, data.unitNumber, data.plateNumber || '', data.vin || '', data.make || '', data.model || '', data.year || null, data.type || 'tractor', data.category || 'power_unit', data.length || '', data.maxWeight || null, !!data.temperatureCapable, !!data.liftgate, !!data.hazmatCapable, data.odometer || 0, data.status || 'active']); return mapVehicle(r.rows[0]); },
+  async createVehicle(companyId, data) { const r = await pool.query(`INSERT INTO vehicles (company_id,unit_number,plate_number,vin,make,model,year,type,image_key,category,length,max_weight,temperature_capable,liftgate,hazmat_capable,odometer,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`, [companyId, data.unitNumber, data.plateNumber || '', data.vin || '', data.make || '', data.model || '', data.year || null, data.type || 'tractor', data.imageKey || data.type || '', data.category || 'power_unit', data.length || '', data.maxWeight || null, !!data.temperatureCapable, !!data.liftgate, !!data.hazmatCapable, data.odometer || 0, data.status || 'active']); return mapVehicle(r.rows[0]); },
   async getAssignments(companyId) { const r = await pool.query('SELECT * FROM assignments WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapAssignment); },
   async assignVehicle(companyId, driverId, vehicleId) {
     const driver = await pool.query('SELECT id FROM drivers WHERE company_id=$1 AND id=$2', [companyId, driverId]);

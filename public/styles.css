@@ -197,6 +197,13 @@ textarea { min-height: 88px; resize: vertical; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
 tbody tr:hover { background: rgba(67,166,255,.045); }
+.vehicle-unit-cell { display:flex; align-items:center; gap:10px; min-width:190px; }
+.vehicle-unit-cell span, .vehicle-unit-cell small { display:block; }
+.vehicle-unit-cell small { color:var(--muted); font-size:12px; margin-top:2px; }
+.vehicle-thumb { width:74px; height:44px; object-fit:cover; border:1px solid var(--line); border-radius:8px; background:#101923; flex:0 0 auto; }
+.equipment-preview { display:grid; grid-template-columns:132px minmax(0, 1fr); align-items:center; gap:12px; padding:10px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.035); }
+.equipment-preview img { width:132px; aspect-ratio:7 / 4; object-fit:cover; border-radius:10px; border:1px solid var(--line); background:#101923; }
+.equipment-preview strong, .equipment-preview p { overflow-wrap:anywhere; }
 .tiny { font-size: 12px; color: var(--muted); }
 .tag { display: inline-block; padding: 6px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .tag.active, .tag.pass, .tag.closed, .tag.completed, .tag.ready, .tag.live { background: rgba(30,200,141,.16); color: #67efb5; }

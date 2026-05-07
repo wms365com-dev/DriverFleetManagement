@@ -60,6 +60,24 @@ const equipmentTypes = [
   ['liftgate_trailer', 'Liftgate Trailer'],
   ['other', 'Other']
 ];
+const equipmentCatalog = [
+  { key: 'freightliner-cascadia', type: 'sleeper_cab', category: 'power_unit', year: 2026, make: 'Freightliner', model: 'Cascadia', label: 'Freightliner Cascadia Sleeper', color: '#2f7dd1' },
+  { key: 'volvo-vnl', type: 'sleeper_cab', category: 'power_unit', year: 2026, make: 'Volvo', model: 'VNL', label: 'Volvo VNL Sleeper', color: '#26a978' },
+  { key: 'kenworth-t680', type: 'sleeper_cab', category: 'power_unit', year: 2025, make: 'Kenworth', model: 'T680', label: 'Kenworth T680 Sleeper', color: '#f2a93b' },
+  { key: 'peterbilt-579', type: 'sleeper_cab', category: 'power_unit', year: 2025, make: 'Peterbilt', model: '579', label: 'Peterbilt 579 Sleeper', color: '#e95f6f' },
+  { key: 'international-lt', type: 'day_cab', category: 'power_unit', year: 2025, make: 'International', model: 'LT', label: 'International LT Day Cab', color: '#7c6be8' },
+  { key: 'mack-anthem', type: 'tractor', category: 'power_unit', year: 2025, make: 'Mack', model: 'Anthem', label: 'Mack Anthem Tractor', color: '#3aa8a1' },
+  { key: 'hino-268-box', type: 'box_truck', category: 'power_unit', year: 2024, make: 'Hino', model: '268 Box Truck', label: 'Hino 268 Box Truck', color: '#4f8bd8' },
+  { key: 'ford-transit', type: 'cargo_van', category: 'power_unit', year: 2024, make: 'Ford', model: 'Transit', label: 'Ford Transit Cargo Van', color: '#5d7892' },
+  { key: 'mercedes-sprinter', type: 'sprinter_van', category: 'power_unit', year: 2024, make: 'Mercedes-Benz', model: 'Sprinter', label: 'Mercedes-Benz Sprinter', color: '#8a98a8' },
+  { key: 'ford-f550-hotshot', type: 'hotshot_truck', category: 'power_unit', year: 2024, make: 'Ford', model: 'F-550 Hotshot', label: 'Ford F-550 Hotshot', color: '#d97941' },
+  { key: 'great-dane-dry-van', type: 'dry_van', category: 'trailer', year: 2025, make: 'Great Dane', model: 'Champion 53 ft', label: 'Great Dane Dry Van', color: '#9aa7b4' },
+  { key: 'utility-reefer', type: 'reefer', category: 'trailer', year: 2025, make: 'Utility', model: '3000R Reefer', label: 'Utility Reefer Trailer', color: '#2dbbb2' },
+  { key: 'fontaine-flatbed', type: 'flatbed', category: 'trailer', year: 2024, make: 'Fontaine', model: 'Revolution Flatbed', label: 'Fontaine Flatbed', color: '#c99342' },
+  { key: 'trail-king-lowboy', type: 'lowboy', category: 'trailer', year: 2024, make: 'Trail King', model: 'Lowboy', label: 'Trail King Lowboy', color: '#b66ad9' },
+  { key: 'heil-tanker', type: 'tanker', category: 'trailer', year: 2024, make: 'Heil', model: 'Tanker', label: 'Heil Tanker', color: '#5da2b7' },
+  { key: 'strick-chassis', type: 'container_chassis', category: 'trailer', year: 2024, make: 'Strick', model: 'Container Chassis', label: 'Strick Container Chassis', color: '#6e7f8f' }
+];
 const loadStatusFlow = [
   ['accepted', 'Accept'],
   ['en_route_pickup', 'En Route Pickup'],
@@ -188,6 +206,27 @@ function failedItems(inspection) {
 }
 function typeLabel(type) {
   return equipmentTypes.find(([value]) => value === type)?.[1] || String(type || '').replaceAll('_', ' ');
+}
+function equipmentCatalogItem(key) {
+  return equipmentCatalog.find(item => item.key === key) || null;
+}
+function equipmentImageUrl(key, type = 'tractor') {
+  const item = equipmentCatalogItem(key) || equipmentCatalog.find(entry => entry.type === type) || equipmentCatalog[0];
+  const label = (item?.make || 'D365').slice(0, 12);
+  const model = (item?.model || typeLabel(type)).slice(0, 18);
+  const color = item?.color || '#2f7dd1';
+  const isTrailer = item?.category === 'trailer';
+  const body = isTrailer
+    ? `<rect x="72" y="96" width="236" height="86" rx="10" fill="${color}"/><rect x="310" y="122" width="42" height="60" rx="8" fill="#243247"/><path d="M62 186h296" stroke="#d7e5f4" stroke-width="12" stroke-linecap="round"/>`
+    : `<rect x="78" y="112" width="138" height="68" rx="16" fill="${color}"/><path d="M210 132h86l40 48H210z" fill="${color}"/><path d="M296 138h30l24 28h-54z" fill="#dceeff"/><rect x="82" y="84" width="86" height="44" rx="12" fill="${color}" opacity=".9"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 240"><rect width="420" height="240" rx="28" fill="#101923"/><path d="M30 191h360" stroke="#30435a" stroke-width="10" stroke-linecap="round"/>${body}<circle cx="134" cy="190" r="27" fill="#06111d" stroke="#d7e5f4" stroke-width="8"/><circle cx="292" cy="190" r="27" fill="#06111d" stroke="#d7e5f4" stroke-width="8"/><text x="28" y="42" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="800" fill="#eef6ff">${label}</text><text x="28" y="68" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#9bb1c7">${model}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+function equipmentCatalogOptions() {
+  return [
+    '<option value="">Manual entry</option>',
+    ...equipmentCatalog.map(item => `<option value="${attr(item.key)}">${esc(item.label)} · ${esc(item.year)}</option>`)
+  ].join('');
 }
 function emptyState(title, detail = '') {
   return `<div class="empty-state"><strong>${esc(title)}</strong>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
@@ -1079,13 +1118,19 @@ function renderVehicles() {
         <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list for this company</p></div>
         ${listSearch('vehicleList', 'Search unit, plate, VIN, type, or status')}
         <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody data-filter-list="vehicleList">
-          ${state.vehicles.map(v => `<tr data-search="${searchableText(v.unitNumber, v.plateNumber, v.vin, v.make, v.model, v.year, typeLabel(v.type), v.status)}"><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(typeLabel(v.type))}<div class="tiny">${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</div></td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
+          ${state.vehicles.map(v => `<tr data-search="${searchableText(v.unitNumber, v.plateNumber, v.vin, v.make, v.model, v.year, typeLabel(v.type), v.status)}"><td><div class="vehicle-unit-cell"><img class="vehicle-thumb" src="${attr(equipmentImageUrl(v.imageKey, v.type))}" alt="" /><span>${esc(v.unitNumber)}<small>${esc(v.plateNumber || 'No plate')}</small></span></div></td><td>${esc(typeLabel(v.type))}<div class="tiny">${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</div></td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
           <tr data-filter-empty hidden><td colspan="3">No matching vehicles.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
         <div class="panel-head"><h3>Add Vehicle</h3><p>Create a new fleet unit</p></div>
         <form id="vehicleForm" class="stack compact">
+          <label>Choose from image catalog<select name="catalogKey" data-equipment-catalog>${equipmentCatalogOptions()}</select></label>
+          <div class="equipment-preview">
+            <img data-equipment-preview src="${attr(equipmentImageUrl(equipmentCatalog[0].key, equipmentCatalog[0].type))}" alt="Selected equipment preview" />
+            <div><strong data-equipment-preview-title>${esc(equipmentCatalog[0].label)}</strong><p class="tiny" data-equipment-preview-detail>${esc(`${equipmentCatalog[0].year} ${equipmentCatalog[0].make} ${equipmentCatalog[0].model}`)}</p></div>
+          </div>
+          <input type="hidden" name="imageKey" />
           <label>Unit number<input name="unitNumber" required /></label>
           <div class="split"><label>Plate<input name="plateNumber" /></label><label>VIN<input name="vin" /></label></div>
           <div class="split"><label>Make<input name="make" /></label><label>Model<input name="model" /></label></div>
@@ -1099,6 +1144,33 @@ function renderVehicles() {
         </form>
       </section>
     </div>`;
+}
+
+function bindVehicleCatalogPicker() {
+  const form = document.getElementById('vehicleForm');
+  const select = form?.querySelector('[data-equipment-catalog]');
+  if (!form || !select) return;
+  const preview = form.querySelector('[data-equipment-preview]');
+  const title = form.querySelector('[data-equipment-preview-title]');
+  const detail = form.querySelector('[data-equipment-preview-detail]');
+  const applySelection = () => {
+    const item = equipmentCatalogItem(select.value);
+    form.elements.imageKey.value = item?.key || '';
+    if (preview) preview.src = equipmentImageUrl(item?.key, item?.type || form.elements.type.value);
+    if (title) title.textContent = item ? item.label : 'Manual equipment entry';
+    if (detail) detail.textContent = item ? `${item.year} ${item.make} ${item.model}` : 'Enter year, make, model, and type directly.';
+    if (!item) return;
+    form.elements.make.value = item.make;
+    form.elements.model.value = item.model;
+    form.elements.year.value = item.year;
+    form.elements.type.value = item.type;
+    form.elements.category.value = item.category;
+  };
+  select.onchange = applySelection;
+  form.elements.type.onchange = () => {
+    if (!select.value && preview) preview.src = equipmentImageUrl('', form.elements.type.value);
+  };
+  applySelection();
 }
 
 function renderAssignments() {
@@ -1644,6 +1716,7 @@ function bindView(view) {
   if (view === 'vehicles') {
     const form = document.getElementById('vehicleForm');
     if (form) form.onsubmit = submitJsonForm('/api/vehicles');
+    bindVehicleCatalogPicker();
   }
   if (view === 'assignments') {
     const form = document.getElementById('assignmentForm');

@@ -429,6 +429,7 @@ app.post('/api/vehicles', auth, staffOnly, requireCompanyScope, async (req, res)
       model: req.body.model || '',
       year: Number(req.body.year) || null,
       type: req.body.type || 'tractor',
+      imageKey: req.body.imageKey || req.body.type || '',
       category: req.body.category || 'power_unit',
       length: req.body.length || '',
       maxWeight: Number(req.body.maxWeight) || null,
