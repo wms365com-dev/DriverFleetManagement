@@ -632,12 +632,25 @@ const fileDb = {
     writeFileDb(db);
     return company;
   },
+  async updateCompanyStatus(id, status) {
+    const db = readFileDb();
+    const company = db.companies.find(c => Number(c.id) === Number(id));
+    if (!company) throw new Error('Company not found.');
+    company.status = status || company.status;
+    if (status === 'active') {
+      for (const user of db.users) {
+        if (Number(user.companyId) === Number(id) && user.role === 'admin') user.isActive = true;
+      }
+    }
+    writeFileDb(db);
+    return mapCompany(company);
+  },
   async getUsers(companyId) {
     return readFileDb().users.filter(u => companyId ? Number(u.companyId) === Number(companyId) : true).map(safeUser);
   },
   async createUser(data) {
     const db = readFileDb();
-    const user = { id: nextId(db.users), companyId: data.companyId || null, email: String(data.email).toLowerCase(), passwordHash: hashPassword(data.password), role: data.role, linkedDriverId: data.linkedDriverId || null, firstName: data.firstName || '', lastName: data.lastName || '', isActive: true };
+    const user = { id: nextId(db.users), companyId: data.companyId || null, email: String(data.email).toLowerCase(), passwordHash: hashPassword(data.password), role: data.role, linkedDriverId: data.linkedDriverId || null, firstName: data.firstName || '', lastName: data.lastName || '', isActive: data.isActive !== false };
     db.users.push(user);
     writeFileDb(db);
     return safeUser(user);
@@ -883,6 +896,22 @@ const pgDb = {
     const r = await pool.query(`INSERT INTO companies (name,code,status) VALUES ($1,$2,$3) RETURNING *`, [data.name, code, data.status || 'active']);
     return mapCompany(r.rows[0]);
   },
+  async updateCompanyStatus(id, status) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await client.query('UPDATE companies SET status=$2 WHERE id=$1 RETURNING *', [id, status]);
+      if (!r.rows[0]) throw new Error('Company not found.');
+      if (status === 'active') {
+        await client.query(`UPDATE users SET is_active=true WHERE company_id=$1 AND role='admin'`, [id]);
+      }
+      await client.query('COMMIT');
+      return mapCompany(r.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  },
   async getUsers(companyId) {
     const params = [];
     let sql = 'SELECT id,company_id,email,role,linked_driver_id,first_name,last_name,is_active FROM users';
@@ -892,7 +921,7 @@ const pgDb = {
     return r.rows.map(row => safeUser(mapUser(row)));
   },
   async createUser(data) {
-    const r = await pool.query(`INSERT INTO users (company_id,email,password_hash,role,linked_driver_id,first_name,last_name,is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING id,company_id,email,role,linked_driver_id,first_name,last_name,is_active`, [data.companyId || null, String(data.email).toLowerCase(), hashPassword(data.password), data.role, data.linkedDriverId || null, data.firstName || '', data.lastName || '']);
+    const r = await pool.query(`INSERT INTO users (company_id,email,password_hash,role,linked_driver_id,first_name,last_name,is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,company_id,email,role,linked_driver_id,first_name,last_name,is_active`, [data.companyId || null, String(data.email).toLowerCase(), hashPassword(data.password), data.role, data.linkedDriverId || null, data.firstName || '', data.lastName || '', data.isActive !== false]);
     return safeUser(mapUser(r.rows[0]));
   },
   async findUserByEmail(email) {

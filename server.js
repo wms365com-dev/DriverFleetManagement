@@ -140,6 +140,14 @@ function validateSignup(payload) {
   if (!payload.firstName) throw new Error('Admin first name is required.');
   if (!payload.lastName) throw new Error('Admin last name is required.');
 }
+async function ensureApprovedCompanyForLogin(user) {
+  if (user.role === 'super_user') return;
+  const companies = await db.getCompanies();
+  const company = companies.find(c => Number(c.id) === Number(user.companyId));
+  if (!company || company.status !== 'active') {
+    throw new Error('Your company signup is pending super admin approval.');
+  }
+}
 function parseInspectionItems(raw) {
   const parsed = JSON.parse(raw || '[]');
   if (!Array.isArray(parsed)) throw new Error('Inspection checklist is invalid.');
@@ -248,21 +256,18 @@ app.post('/api/public/signup', async (req, res) => {
     const company = await db.createCompany({
       name: payload.companyName,
       code: companyCodeFromName(payload.companyName),
-      status: 'active'
+      status: 'pending'
     });
-    const user = await db.createUser({
+    await db.createUser({
       companyId: company.id,
       email: payload.email,
       password: payload.password,
       role: 'admin',
       firstName: payload.firstName,
-      lastName: payload.lastName
+      lastName: payload.lastName,
+      isActive: false
     });
-    const safeUser = sanitizeUser(user);
-    const token = createSessionToken();
-    sessions.set(token, safeUser);
-    setSessionCookie(res, token);
-    res.json({ ok: true, company, user: safeUser, next: '/portal' });
+    res.json({ ok: true, company, pendingApproval: true, message: 'Signup received. A super admin must approve the company before login is enabled.' });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to create company signup' });
   }
@@ -274,6 +279,11 @@ app.post('/api/auth/login', async (req, res) => {
   const user = await db.findUserByEmail(email);
   if (!user || user.isActive === false || !verifyPassword(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  try {
+    await ensureApprovedCompanyForLogin(user);
+  } catch (error) {
+    return res.status(403).json({ error: error.message });
   }
   const token = createSessionToken();
   const safeUser = sanitizeUser(user);
@@ -310,6 +320,16 @@ app.post('/api/companies', auth, superOnly, async (req, res) => {
     res.json(company);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to create company' });
+  }
+});
+app.patch('/api/companies/:id/status', auth, superOnly, async (req, res) => {
+  try {
+    const status = String(req.body.status || '').trim();
+    if (!['active', 'pending', 'inactive'].includes(status)) return res.status(400).json({ error: 'Invalid company status' });
+    const company = await db.updateCompanyStatus(Number(req.params.id), status);
+    res.json(company);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update company status' });
   }
 });
 

@@ -736,14 +736,15 @@ function renderDispatchHome() {
 }
 
 function renderCompanies() {
+  const pendingCount = state.companies.filter(c => c.status === 'pending').length;
   return `
     <div class="two-col">
       <section class="panel glass">
-        <div class="panel-head"><h3>Companies</h3><p>The super user controls company setup and ownership</p></div>
+        <div class="panel-head"><h3>Companies</h3><p>${pendingCount} pending approval${pendingCount === 1 ? '' : 's'}</p></div>
         ${listSearch('companyList', 'Search company or code')}
-        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th></tr></thead><tbody data-filter-list="companyList">
-          ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status)}"><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
-          <tr data-filter-empty hidden><td colspan="3">No matching companies.</td></tr>
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
+          ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status)}"><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td><td>${c.status === 'pending' ? `<button class="btn primary small-btn approve-company" data-company-id="${attr(c.id)}">Approve</button>` : c.status === 'active' ? '<span class="tiny">Approved</span>' : `<button class="btn ghost small-btn approve-company" data-company-id="${attr(c.id)}">Reactivate</button>`}</td></tr>`).join('') || '<tr><td colspan="4">No companies yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="4">No matching companies.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -1383,6 +1384,20 @@ function bindView(view) {
   if (view === 'companies') {
     const form = document.getElementById('companyForm');
     if (form) form.onsubmit = submitJsonForm('/api/companies');
+    document.querySelectorAll('.approve-company').forEach(btn => btn.onclick = async () => {
+      try {
+        await api(`/api/companies/${btn.dataset.companyId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'active' })
+        });
+        await loadEverything();
+        render();
+        setToast('Company approved', 'success');
+      } catch (error) {
+        setToast(error.message, 'error');
+      }
+    });
   }
   if (view === 'users') {
     const form = document.getElementById('userForm');

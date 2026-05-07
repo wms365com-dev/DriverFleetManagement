@@ -23,11 +23,11 @@
     <section class="signup-intro">
       <p class="eyebrow">Company setup</p>
       <h1>Create your Dispatcher365 workspace.</h1>
-      <p>Start with the company account. We will create the first admin user, then the admin can add dispatchers, drivers, equipment, locations, and assignments inside the secure portal.</p>
+      <p>Start with the company account. A super admin reviews and approves the company first, then the first admin can log in and add dispatchers, drivers, equipment, locations, and assignments.</p>
       <div class="signup-flow">
         <article><span>1</span><strong>Company</strong><small>Create the fleet workspace.</small></article>
         <article><span>2</span><strong>Admin User</strong><small>Create the first company admin.</small></article>
-        <article><span>3</span><strong>Portal Setup</strong><small>Add drivers, dispatchers, and equipment.</small></article>
+        <article><span>3</span><strong>Approval</strong><small>Super admin enables the company workspace.</small></article>
       </div>
     </section>
 
@@ -88,8 +88,8 @@
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || 'Unable to create signup.');
         message.className = 'signup-message success';
-        message.textContent = 'Workspace created. Opening the portal...';
-        setTimeout(() => { window.location.href = body.next || '/portal'; }, 700);
+        form.reset();
+        message.textContent = body.message || 'Signup received. A super admin must approve the company before login is enabled.';
       } catch (error) {
         message.className = 'signup-message error';
         message.textContent = error.message;
