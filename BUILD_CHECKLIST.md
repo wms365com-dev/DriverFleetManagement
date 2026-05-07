@@ -4,6 +4,13 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 
 ## Highest Priority
 
+### Data Protection / Backups
+- [x] Document database and upload-file backup strategy.
+- [x] Add a manual backup command for database rows and uploaded proof files.
+- [ ] Move uploaded POD/BOL/signature files to durable object storage.
+- [ ] Schedule daily offsite backups.
+- [ ] Add monthly restore test process for staging.
+
 ### Load Lifecycle Rules
 - [ ] Add clearer statuses and required steps by load type.
 - [ ] Use this default flow: Booked -> Assigned -> Accepted -> En Route Pickup -> Arrived Pickup -> Loaded/Picked Up -> In Transit -> Arrived Delivery -> Delivered -> POD Uploaded -> Closed.

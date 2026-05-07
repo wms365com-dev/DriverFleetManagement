@@ -4,7 +4,8 @@
   "description": "Driver fleet management app for Railway with PostgreSQL support",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "backup": "node scripts/backup-data.js"
   },
   "dependencies": {
     "express": "^4.19.2",
