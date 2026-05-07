@@ -28,6 +28,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(['/portal', '/login', '/app'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/signup', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'signup.html')));
+app.get('/track/:token', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tracking.html')));
 
 function parseCookies(req) {
   const header = req.headers.cookie || '';
@@ -187,6 +188,37 @@ function loadPayload(body) {
     driverId: Number(body.driverId) || null,
     vehicleId: Number(body.vehicleId) || null,
     trailerId: Number(body.trailerId) || null
+  };
+}
+function publicLoadPayload(load) {
+  if (!load) return null;
+  return {
+    loadNumber: load.loadNumber,
+    customer: load.customer,
+    referenceNumber: load.referenceNumber,
+    pickupName: load.pickupName,
+    pickupAddress: load.pickupAddress,
+    pickupAppointment: load.pickupAppointment,
+    deliveryName: load.deliveryName,
+    deliveryAddress: load.deliveryAddress,
+    deliveryAppointment: load.deliveryAppointment,
+    commodity: load.commodity,
+    pieces: load.pieces,
+    status: load.status,
+    updatedAt: load.updatedAt,
+    events: (load.events || []).map(event => ({
+      status: event.status,
+      note: event.note || '',
+      at: event.at
+    })),
+    documents: (load.documents || [])
+      .filter(doc => ['bol', 'pod', 'proof', 'delivery', 'receipt'].includes(String(doc.type || '').toLowerCase()))
+      .map(doc => ({
+        type: doc.type || 'document',
+        note: doc.note || '',
+        url: doc.url,
+        uploadedAt: doc.uploadedAt
+      }))
   };
 }
 function addressPayload(body) {
@@ -646,6 +678,16 @@ app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverPro
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to upload document' });
+  }
+});
+
+app.get('/api/public/loads/:token', async (req, res) => {
+  try {
+    const load = await db.getPublicLoadByToken(req.params.token);
+    if (!load) return res.status(404).json({ error: 'Tracking link not found' });
+    res.json(publicLoadPayload(load));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to load tracking details' });
   }
 });
 

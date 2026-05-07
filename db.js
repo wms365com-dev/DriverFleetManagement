@@ -1,11 +1,16 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 const { hashPassword } = require('./auth');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 const usePostgres = !!process.env.DATABASE_URL;
+
+function makeTrackingToken() {
+  return crypto.randomBytes(18).toString('hex');
+}
 
 const seedCompany = { id: 1, name: 'Demo Fleet', code: 'DEMO', status: 'active', createdAt: new Date().toISOString() };
 const seed = {
@@ -96,6 +101,7 @@ function normalizeFileDb() {
     if (!load.companyId) { load.companyId = seedCompany.id; changed = true; }
     if (!Array.isArray(load.events)) { load.events = []; changed = true; }
     if (!Array.isArray(load.documents)) { load.documents = []; changed = true; }
+    if (!load.publicTrackingToken) { load.publicTrackingToken = makeTrackingToken(); changed = true; }
   }
   for (const address of db.addresses) {
     if (!address.companyId) { address.companyId = seedCompany.id; changed = true; }
@@ -226,6 +232,7 @@ function mapLoad(r) {
     driverId: r.driver_id ?? r.driverId ?? null,
     vehicleId: r.vehicle_id ?? r.vehicleId ?? null,
     trailerId: r.trailer_id ?? r.trailerId ?? null,
+    publicTrackingToken: r.public_tracking_token || r.publicTrackingToken || '',
     status: r.status || 'new',
     events: r.events || [],
     documents: r.documents || [],
@@ -448,6 +455,7 @@ async function initPostgres() {
     driver_id INTEGER,
     vehicle_id INTEGER,
     trailer_id INTEGER,
+    public_tracking_token TEXT,
     status TEXT NOT NULL DEFAULT 'new',
     events JSONB NOT NULL DEFAULT '[]'::jsonb,
     documents JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -503,6 +511,9 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_hours TEXT`);
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_dock_type TEXT`);
   await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_site_notes TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS public_tracking_token TEXT`);
+  await pool.query(`UPDATE loads SET public_tracking_token = md5(id::text || random()::text || clock_timestamp()::text) WHERE public_tracking_token IS NULL OR public_tracking_token = ''`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS loads_public_tracking_token_unique ON loads (public_tracking_token)`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'power_unit'`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS length TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS max_weight INTEGER`);
@@ -822,12 +833,18 @@ const fileDb = {
     if (payload.vehicleId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Power unit not found.');
     if (payload.trailerId && !db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.trailerId))) throw new Error('Trailer/equipment not found.');
     const status = payload.driverId ? 'assigned' : 'new';
-    const load = { id: nextId(db.loads), companyId, ...payload, status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const load = { id: nextId(db.loads), companyId, ...payload, publicTrackingToken: makeTrackingToken(), status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     db.loads.push(load);
     writeFileDb(db);
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - '), lastUsedAt: new Date().toISOString() });
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - '), lastUsedAt: new Date().toISOString() });
     return mapLoad(load);
+  },
+  async getPublicLoadByToken(token) {
+    const normalized = String(token || '').trim();
+    if (!normalized) return null;
+    const load = readFileDb().loads.find(l => l.publicTrackingToken === normalized);
+    return load ? mapLoad(load) : null;
   },
   async updateLoadStatus(companyId, id, status, note, user) {
     const db = readFileDb();
@@ -1035,10 +1052,16 @@ const pgDb = {
     if (payload.trailerId) { const trailer = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.trailerId]); if (!trailer.rows[0]) throw new Error('Trailer/equipment not found.'); }
     const status = payload.driverId ? 'assigned' : 'new';
     const events = [commonMethods.buildLoadEvent(status, 'Load created', user)];
-    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,status,JSON.stringify(events)]);
+    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,public_tracking_token,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,makeTrackingToken(),status,JSON.stringify(events)]);
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - ') });
     await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - ') });
     return mapLoad(r.rows[0]);
+  },
+  async getPublicLoadByToken(token) {
+    const normalized = String(token || '').trim();
+    if (!normalized) return null;
+    const r = await pool.query('SELECT * FROM loads WHERE public_tracking_token=$1 LIMIT 1', [normalized]);
+    return r.rows[0] ? mapLoad(r.rows[0]) : null;
   },
   async updateLoadStatus(companyId, id, status, note, user) {
     const existing = await pool.query('SELECT * FROM loads WHERE company_id=$1 AND id=$2', [companyId, id]);

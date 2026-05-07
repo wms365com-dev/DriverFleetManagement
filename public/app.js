@@ -325,6 +325,10 @@ function customerUpdateText(record) {
   const latest = record.latestLoad ? `Last update: ${loadStatusLabel(record.latestLoad.status)} on load ${record.latestLoad.loadNumber} (${fmt(loadLastActivity(record.latestLoad))}).` : 'No load activity recorded yet.';
   return `Dispatcher365 customer update for ${record.name}\n${latest}\n\nActive work:\n${activeSummary}`;
 }
+function publicTrackingUrl(load) {
+  if (!load?.publicTrackingToken) return '';
+  return `${window.location.origin}/track/${encodeURIComponent(load.publicTrackingToken)}`;
+}
 function activeAssignmentForDriver(driverId) {
   return state.assignments.find(a => Number(a.driverId) === Number(driverId) && a.active);
 }
@@ -1198,12 +1202,14 @@ function renderLoadCard(load, dispatcher = false) {
   const docs = load.documents || [];
   const pickupDetails = stopSiteDetails(load, 'pickup');
   const deliveryDetails = stopSiteDetails(load, 'delivery');
+  const trackingUrl = publicTrackingUrl(load);
   return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
+    ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>` : ''}
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
     ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
   </article>`;
@@ -1650,6 +1656,7 @@ function bindView(view) {
     if (addressForm) addressForm.onsubmit = submitJsonForm('/api/addresses');
     bindAddressInputs();
     bindLoadEntryHelpers();
+    bindTrackingLinks();
   }
   if (view === 'locations') {
     const form = document.getElementById('locationForm');
@@ -1747,6 +1754,20 @@ function bindCustomerTracking() {
       try {
         await navigator.clipboard.writeText(text);
         setToast('Customer update copied', 'success');
+      } catch {
+        setToast(text, 'success');
+      }
+    };
+  });
+}
+
+function bindTrackingLinks() {
+  document.querySelectorAll('.copy-tracking-link').forEach(btn => {
+    btn.onclick = async () => {
+      const text = btn.dataset.url || '';
+      try {
+        await navigator.clipboard.writeText(text);
+        setToast('Customer tracking link copied', 'success');
       } catch {
         setToast(text, 'success');
       }

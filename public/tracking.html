@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Load Tracking | Dispatcher365</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="tracking-body">
+  <main class="tracking-shell">
+    <section class="tracking-card">
+      <div class="tracking-brand">
+        <span>D365</span>
+        <strong>Dispatcher365</strong>
+      </div>
+      <div id="trackingRoot" class="tracking-content">
+        <p class="eyebrow">Customer Tracking</p>
+        <h1>Loading shipment status...</h1>
+      </div>
+    </section>
+  </main>
+  <script>
+    const root = document.getElementById('trackingRoot');
+    const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+    const statusLabels = {
+      new: 'Created',
+      assigned: 'Assigned',
+      accepted: 'Accepted',
+      en_route_pickup: 'En Route To Pickup',
+      at_pickup: 'At Pickup',
+      picked_up: 'Picked Up',
+      in_transit: 'In Transit',
+      at_delivery: 'At Delivery',
+      delivered: 'Delivered',
+      exception: 'Exception',
+      cancelled: 'Cancelled'
+    };
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+    const fmt = value => value ? new Date(value).toLocaleString() : 'Not scheduled';
+    const label = status => statusLabels[status] || String(status || 'new').replaceAll('_', ' ');
+    const statusClass = status => String(status || 'new').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+
+    function render(load) {
+      const events = [...(load.events || [])].sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+      root.innerHTML = `
+        <div class="tracking-hero">
+          <div>
+            <p class="eyebrow">Customer Tracking</p>
+            <h1>Load ${esc(load.loadNumber)}</h1>
+            <p>${esc(load.customer || 'Shipment status')}</p>
+          </div>
+          <span class="tracking-status ${statusClass(load.status)}">${esc(label(load.status))}</span>
+        </div>
+        <div class="tracking-progress">
+          ${['assigned','en_route_pickup','picked_up','in_transit','at_delivery','delivered'].map(step => `<span class="${events.some(event => event.status === step) || load.status === step ? 'done' : ''}">${esc(label(step))}</span>`).join('')}
+        </div>
+        <div class="tracking-grid">
+          <article>
+            <span>Pickup</span>
+            <strong>${esc(load.pickupName || 'Pickup')}</strong>
+            <p>${esc(load.pickupAddress || 'Address pending')}</p>
+            <small>${fmt(load.pickupAppointment)}</small>
+          </article>
+          <article>
+            <span>Delivery</span>
+            <strong>${esc(load.deliveryName || 'Delivery')}</strong>
+            <p>${esc(load.deliveryAddress || 'Address pending')}</p>
+            <small>${fmt(load.deliveryAppointment)}</small>
+          </article>
+        </div>
+        <div class="tracking-details">
+          <div><span>Reference</span><strong>${esc(load.referenceNumber || 'Not provided')}</strong></div>
+          <div><span>Commodity</span><strong>${esc(load.commodity || 'Not provided')}</strong></div>
+          <div><span>Pieces</span><strong>${esc(load.pieces || 'Not provided')}</strong></div>
+          <div><span>Last Updated</span><strong>${fmt(load.updatedAt)}</strong></div>
+        </div>
+        <section class="tracking-section">
+          <h2>Status History</h2>
+          <div class="tracking-timeline">
+            ${events.map(event => `<div><span></span><strong>${esc(label(event.status))}</strong><p>${esc(event.note || '')}</p><small>${fmt(event.at)}</small></div>`).join('') || '<p>No status updates yet.</p>'}
+          </div>
+        </section>
+        <section class="tracking-section">
+          <h2>Documents</h2>
+          <div class="tracking-docs">
+            ${(load.documents || []).map(doc => `<a href="${esc(doc.url)}" target="_blank" rel="noopener"><strong>${esc(doc.type || 'Document')}</strong><span>${esc(doc.note || 'View uploaded file')}</span><small>${fmt(doc.uploadedAt)}</small></a>`).join('') || '<p>No customer documents uploaded yet.</p>'}
+          </div>
+        </section>`;
+    }
+
+    async function init() {
+      try {
+        const res = await fetch(`/api/public/loads/${encodeURIComponent(token)}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Tracking link not found');
+        render(body);
+      } catch (error) {
+        root.innerHTML = `<p class="eyebrow">Customer Tracking</p><h1>Tracking link unavailable.</h1><p>${esc(error.message)}</p>`;
+      }
+    }
+    init();
+  </script>
+</body>
+</html>
