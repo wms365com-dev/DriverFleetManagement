@@ -164,11 +164,25 @@ function failedItems(inspection) {
 function typeLabel(type) {
   return equipmentTypes.find(([value]) => value === type)?.[1] || String(type || '').replaceAll('_', ' ');
 }
+function emptyState(title, detail = '') {
+  return `<div class="empty-state"><strong>${esc(title)}</strong>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
+}
+function listSearch(id, placeholder = 'Search') {
+  return `<div class="list-toolbar"><label class="search-field"><span>Search</span><input type="search" data-filter-target="${attr(id)}" placeholder="${attr(placeholder)}" autocomplete="off" /></label></div>`;
+}
+function searchableText(...values) {
+  return attr(values.filter(value => value !== null && value !== undefined).join(' ').toLowerCase());
+}
 function loadStatusTag(load) {
   return statusTag(load.status || 'new');
 }
 function activeLoads() {
   return state.loads.filter(load => !['delivered', 'cancelled'].includes(load.status));
+}
+function nextLoadStatus(load) {
+  const currentIndex = loadStatusFlow.findIndex(([status]) => status === load.status);
+  if (currentIndex < 0) return 'accepted';
+  return loadStatusFlow[currentIndex + 1]?.[0] || '';
 }
 function driverActiveLoad(driverId) {
   return activeLoads().find(load => Number(load.driverId) === Number(driverId)) || null;
@@ -646,8 +660,10 @@ function renderCompanies() {
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Companies</h3><p>The super user controls company setup and ownership</p></div>
-        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th></tr></thead><tbody>
-          ${state.companies.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
+        ${listSearch('companyList', 'Search company or code')}
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Code</th><th>Status</th></tr></thead><tbody data-filter-list="companyList">
+          ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status)}"><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td></tr>`).join('') || '<tr><td colspan="3">No companies yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="3">No matching companies.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -674,8 +690,10 @@ function renderUsers() {
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Company Users</h3><p>Admin and dispatcher accounts for this company</p></div>
-        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>
-          ${state.users.map(u => `<tr><td>${esc(`${u.firstName || ''} ${u.lastName || ''}`.trim())}</td><td>${esc(u.email)}</td><td>${statusTag(u.role)}</td></tr>`).join('') || '<tr><td colspan="3">No users yet</td></tr>'}
+        ${listSearch('userList', 'Search name, email, or role')}
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody data-filter-list="userList">
+          ${state.users.map(u => `<tr data-search="${searchableText(u.firstName, u.lastName, u.email, u.role)}"><td>${esc(`${u.firstName || ''} ${u.lastName || ''}`.trim())}</td><td>${esc(u.email)}</td><td>${statusTag(u.role)}</td></tr>`).join('') || '<tr><td colspan="3">No users yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="3">No matching users.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -790,8 +808,10 @@ function renderDrivers() {
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Drivers</h3><p>Drivers can log in, start shifts, inspect vehicles, and report issues</p></div>
-        <div class="table-wrap"><table><thead><tr><th>Name</th><th>License</th><th>Status</th></tr></thead><tbody>
-          ${state.drivers.map(d => `<tr><td>${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}<div class="tiny">${esc(d.email || '')}</div></td><td>${esc(d.licenseClass || '') || '&mdash;'} &middot; ${esc(d.licenseNumber || '') || '&mdash;'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
+        ${listSearch('driverList', 'Search driver, email, phone, or license')}
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>License</th><th>Status</th></tr></thead><tbody data-filter-list="driverList">
+          ${state.drivers.map(d => `<tr data-search="${searchableText(d.firstName, d.lastName, d.email, d.phone, d.licenseClass, d.licenseNumber, d.status)}"><td>${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}<div class="tiny">${esc(d.email || d.phone || '')}</div></td><td>${esc(d.licenseClass || '') || '&mdash;'} &middot; ${esc(d.licenseNumber || '') || '&mdash;'}</td><td>${statusTag(d.status)}</td></tr>`).join('') || '<tr><td colspan="3">No drivers yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="3">No matching drivers.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -817,8 +837,10 @@ function renderVehicles() {
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Vehicles</h3><p>Fleet master list for this company</p></div>
-        <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody>
-          ${state.vehicles.map(v => `<tr><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(typeLabel(v.type))}<div class="tiny">${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</div></td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
+        ${listSearch('vehicleList', 'Search unit, plate, VIN, type, or status')}
+        <div class="table-wrap"><table><thead><tr><th>Unit</th><th>Vehicle</th><th>Status</th></tr></thead><tbody data-filter-list="vehicleList">
+          ${state.vehicles.map(v => `<tr data-search="${searchableText(v.unitNumber, v.plateNumber, v.vin, v.make, v.model, v.year, typeLabel(v.type), v.status)}"><td>${esc(v.unitNumber)}<div class="tiny">${esc(v.plateNumber || '')}</div></td><td>${esc(typeLabel(v.type))}<div class="tiny">${esc(`${v.make || ''} ${v.model || ''}`.trim())} &middot; ${esc(v.year || '')}</div></td><td>${statusTag(v.status)}</td></tr>`).join('') || '<tr><td colspan="3">No vehicles yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="3">No matching vehicles.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -876,8 +898,10 @@ function renderLoads() {
     <div class="two-col">
       <section class="panel glass">
         <div class="panel-head"><h3>Load Board</h3><p>${activeLoads().length} active loads</p></div>
-        <div class="load-board">
-          ${state.loads.map(load => renderLoadCard(load, true)).join('') || '<p class="tiny">No loads yet.</p>'}
+        ${listSearch('loadBoard', 'Search load, customer, driver, address, or status')}
+        <div class="load-board" data-filter-list="loadBoard">
+          ${state.loads.map(load => renderLoadCard(load, true)).join('') || emptyState('No loads yet', 'Create the first load from the form on the right.')}
+          <div data-filter-empty hidden>${emptyState('No matching loads', 'Try another load number, customer, address, or driver.')}</div>
         </div>
       </section>
       <section class="panel glass">
@@ -916,7 +940,7 @@ function renderLoads() {
 
 function renderLoadCard(load, dispatcher = false) {
   const docs = load.documents || [];
-  return `<article class="load-card">
+  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.customer, load.broker, load.pickupName, load.pickupAddress, load.deliveryName, load.deliveryAddress, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
@@ -931,10 +955,11 @@ function renderInspections() {
   return `
     <section class="panel glass">
       <div class="panel-head"><h3>Inspection Feed</h3><p>Submitted pre-trip inspections</p></div>
-      <div class="inspection-grid">${state.inspections.map(i => {
+      ${listSearch('inspectionList', 'Search driver, vehicle, result, or notes')}
+      <div class="inspection-grid" data-filter-list="inspectionList">${state.inspections.map(i => {
         const failed = failedItems(i);
-        return `<article class="inspection-card"><div class="panel-head"><strong>#${esc(i.id)} &middot; ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.inspectionTime)}</p><p>${esc(i.notes || 'No notes.')}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}${failed.length ? ` &middot; Failed: ${failed.map(item => esc(item.item)).join(', ')}` : ''}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${attr(p.url)}" alt="inspection photo" />`).join('')}</div></article>`;
-      }).join('') || '<p>No inspections yet.</p>'}</div>
+        return `<article class="inspection-card" data-search="${searchableText(i.id, vehicleName(i.vehicleId), driverName(i.driverId), i.overallStatus, i.notes, failed.map(item => item.item).join(' '))}"><div class="panel-head"><strong>#${esc(i.id)} &middot; ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.inspectionTime)}</p><p>${esc(i.notes || 'No notes.')}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}${failed.length ? ` &middot; Failed: ${failed.map(item => esc(item.item)).join(', ')}` : ''}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${attr(p.url)}" alt="inspection photo" />`).join('')}</div></article>`;
+      }).join('') || emptyState('No inspections yet', 'Driver inspection submissions will appear here.')}<div data-filter-empty hidden>${emptyState('No matching inspections', 'Try searching by driver, vehicle, or result.')}</div></div>
     </section>`;
 }
 
@@ -942,7 +967,8 @@ function renderIssues() {
   return `
     <section class="panel glass">
       <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
-      <div class="issue-list">${state.issues.map(i => `<article class="issue-card"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${attr(i.id)}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || '<p>No issues reported.</p>'}</div>
+      ${listSearch('issueList', 'Search vehicle, driver, severity, or description')}
+      <div class="issue-list" data-filter-list="issueList">${state.issues.map(i => `<article class="issue-card" data-search="${searchableText(vehicleName(i.vehicleId), driverName(i.driverId), i.category, i.severity, i.status, i.description)}"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${attr(i.id)}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || emptyState('No issues reported', 'Vehicle defects and driver issue reports will appear here.')}<div data-filter-empty hidden>${emptyState('No matching issues', 'Try another vehicle, driver, severity, or keyword.')}</div></div>
     </section>`;
 }
 
@@ -952,13 +978,14 @@ function renderBugReports() {
     <div class="two-col">
       ${canReview ? `<section class="panel glass">
         <div class="panel-head"><h3>Reported Bugs</h3><p>Open app issues from drivers and staff.</p></div>
-        <div class="issue-list">${state.bugReports.map(report => `
-          <article class="issue-card">
+        ${listSearch('bugList', 'Search title, reporter, page, priority, or status')}
+        <div class="issue-list" data-filter-list="bugList">${state.bugReports.map(report => `
+          <article class="issue-card" data-search="${searchableText(report.title, report.reporterName, report.reporterRole, report.page, report.category, report.priority, report.status, report.description)}">
             <div class="panel-head"><div><strong>${esc(report.title)}</strong><p class="tiny">${esc(report.reporterName || 'Unknown')} &middot; ${fmt(report.createdAt)} &middot; ${esc(report.page || 'No page')}</p></div><div class="stack-right">${statusTag(report.priority)}${statusTag(report.status)}</div></div>
             <p>${esc(report.description || '')}</p>
             ${report.photos?.length ? `<div class="photo-row">${report.photos.map(p => `<a class="doc-thumb" href="${attr(p.url)}" target="_blank" rel="noopener"><img src="${attr(p.url)}" alt="bug screenshot" /><span>shot</span></a>`).join('')}</div>` : ''}
             ${report.status !== 'closed' ? `<button class="btn primary small-btn close-bug" data-id="${attr(report.id)}">Mark Fixed</button>` : `<p class="tiny">Closed ${fmt(report.closedAt)}</p>`}
-          </article>`).join('') || '<p class="tiny">No bug reports yet.</p>'}</div>
+          </article>`).join('') || emptyState('No bug reports yet', 'Reports from drivers and staff will appear here.')}<div data-filter-empty hidden>${emptyState('No matching bug reports', 'Try another title, page, reporter, or status.')}</div></div>
       </section>` : ''}
       <section class="panel glass ${canReview ? '' : 'mobile-card'}">
         <div class="panel-head"><h3>Report a Bug</h3><p>Send the page, what happened, and an optional screenshot.</p></div>
@@ -1068,12 +1095,13 @@ function renderDriverWorkPage() {
 }
 
 function renderDriverLoadCard(load) {
+  const nextStatus = nextLoadStatus(load);
   return `<article class="load-card driver-load-card">
     <div class="card-row"><strong>${esc(load.loadNumber)}</strong>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
     <div class="load-actions">
-      ${loadStatusFlow.map(([status, label]) => `<button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}">${esc(label)}</button>`).join('')}
+      ${loadStatusFlow.map(([status, label]) => `<button class="btn ${status === nextStatus ? 'primary' : 'ghost'} small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="${attr(status)}">${esc(label)}</button>`).join('')}
       <button class="btn ghost small-btn load-status-btn" data-load-id="${attr(load.id)}" data-status="exception">Exception</button>
     </div>
     <form class="load-doc-form stack compact" data-load-doc="${attr(load.id)}" enctype="multipart/form-data">
@@ -1086,6 +1114,7 @@ function renderDriverLoadCard(load) {
 }
 
 function bindView(view) {
+  bindListFilters();
   if (view === 'companies') {
     const form = document.getElementById('companyForm');
     if (form) form.onsubmit = submitJsonForm('/api/companies');
@@ -1170,6 +1199,24 @@ function bindView(view) {
   }
   if (view === 'driver') bindDriverWorkspace();
   if (view === 'driverWork') bindDriverWorkPage();
+}
+
+function bindListFilters() {
+  document.querySelectorAll('[data-filter-target]').forEach(input => {
+    input.oninput = () => {
+      const target = document.querySelector(`[data-filter-list="${CSS.escape(input.dataset.filterTarget)}"]`);
+      if (!target) return;
+      const query = input.value.trim().toLowerCase();
+      let visible = 0;
+      target.querySelectorAll('[data-search]').forEach(item => {
+        const match = !query || item.dataset.search.includes(query);
+        item.hidden = !match;
+        if (match) visible += 1;
+      });
+      const empty = target.querySelector('[data-filter-empty]');
+      if (empty) empty.hidden = visible > 0;
+    };
+  });
 }
 
 function bindDriverWorkPage() {
