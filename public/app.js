@@ -1467,6 +1467,17 @@ function renderLoadTypeFields() {
     </div>`;
 }
 
+function renderExtraStopTemplate(index = 1) {
+  return `<div class="extra-stop-card" data-extra-stop>
+    <div class="card-row"><strong>Extra stop</strong><button class="btn ghost small-btn remove-extra-stop" type="button">Remove</button></div>
+    <div class="split"><label>Stop type<select data-extra-stop-field="type"><option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></label><label>Appointment<input type="datetime-local" data-extra-stop-field="appointment" /></label></div>
+    <label>Name<input data-extra-stop-field="name" placeholder="Stop ${index} name" /></label>
+    <label>Address<input data-extra-stop-field="address" autocomplete="street-address" placeholder="Stop ${index} address" /></label>
+    <div class="split"><label>Contact<input data-extra-stop-field="contactName" /></label><label>Phone<input data-extra-stop-field="phone" /></label></div>
+    <label>Notes<textarea data-extra-stop-field="notes" placeholder="Dock, access, appointment, unloading notes"></textarea></label>
+  </div>`;
+}
+
 function renderLoads() {
   const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}" ${vehicleAvailableForLoad(v) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
   const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" data-type="${attr(v.type)}" ${vehicleAvailableForLoad(v) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
@@ -1510,6 +1521,11 @@ function renderLoads() {
           <div class="split"><label>Delivery operations hours<input name="deliveryHours" placeholder="Mon-Fri 7-3" /></label><label>Delivery dock / tailgate<select name="deliveryDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
           <div class="split"><label>Delivery contact<input name="deliveryContactName" /></label><label>Delivery phone<input name="deliveryPhone" /></label></div>
           <label>Delivery site notes<textarea name="deliverySiteNotes" placeholder="Receiving process, gate code, door, buzzer, unloading notes"></textarea></label>
+          <div class="extra-stops-panel">
+            <div class="card-row"><div><strong>Extra Stops</strong><p class="tiny">Add multiple deliveries or additional pickups on the same load.</p></div><button class="btn ghost small-btn" type="button" id="addExtraStopBtn">Add Stop</button></div>
+            <div id="extraStopsList" class="extra-stops-list"></div>
+            <input type="hidden" name="extraStops" id="extraStopsPayload" value="[]" />
+          </div>
           <div class="form-step"><span>3</span><strong>Freight and Assignment</strong></div>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
@@ -1576,6 +1592,7 @@ function renderDispatchBoard() {
 }
 
 function renderDispatchBoardCard(load) {
+  const extraStops = Array.isArray(load.loadDetails?.extraStops) ? load.loadDetails.extraStops : [];
   const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.vehicleId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.vehicleId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
   const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.trailerId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.trailerId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
   return `<article class="dispatch-card" data-load-board-card="${attr(load.id)}">
@@ -1583,6 +1600,7 @@ function renderDispatchBoardCard(load) {
     <p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p>
     <div class="dispatch-stop"><span>PU</span><p>${esc(load.pickupName || load.pickupAddress || 'Pickup')}<small>${fmt(load.pickupAppointment)}</small></p></div>
     <div class="dispatch-stop"><span>DEL</span><p>${esc(load.deliveryName || load.deliveryAddress || 'Delivery')}<small>${fmt(load.deliveryAppointment)}</small></p></div>
+    ${extraStops.length ? `<p class="tiny">${extraStops.length} extra stop${extraStops.length === 1 ? '' : 's'}: ${esc(extraStops.map(stop => stop.name || stop.address || stop.type).join(', '))}</p>` : ''}
     <form class="dispatch-assign-form stack compact" data-load-assignment="${attr(load.id)}">
       <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${Number(d.id) === Number(load.driverId) ? 'selected' : ''} ${driverAvailableForLoad(d) || Number(d.id) === Number(load.driverId) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
       <label>Power<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
@@ -1594,6 +1612,7 @@ function renderDispatchBoardCard(load) {
 
 function renderLoadCard(load, dispatcher = false) {
   const docs = load.documents || [];
+  const extraStops = Array.isArray(load.loadDetails?.extraStops) ? load.loadDetails.extraStops : [];
   const pickupDetails = stopSiteDetails(load, 'pickup');
   const deliveryDetails = stopSiteDetails(load, 'delivery');
   const trackingUrl = publicTrackingUrl(load);
@@ -1609,6 +1628,7 @@ function renderLoadCard(load, dispatcher = false) {
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
+    ${extraStops.length ? `<div class="extra-stop-summary"><strong>${extraStops.length} extra stop${extraStops.length === 1 ? '' : 's'}</strong>${extraStops.map((stop, index) => `<div><span>${esc((stop.type || 'stop').toUpperCase())} ${index + 1}</span><p>${esc(stop.name || stop.address || 'Extra stop')} ${stop.appointment ? `&middot; ${fmt(stop.appointment)}` : ''}</p><small>${esc(stop.address || '')}</small></div>`).join('')}</div>` : ''}
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
     ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
@@ -2122,6 +2142,7 @@ function bindView(view) {
     if (addressForm) addressForm.onsubmit = submitJsonForm('/api/addresses');
     bindAddressInputs();
     bindLoadEntryHelpers();
+    bindExtraStops();
     bindTrackingLinks();
     bindDispatchBoard();
   }
@@ -2725,6 +2746,50 @@ function bindLoadEntryHelpers() {
   form.elements.vehicleId?.addEventListener('change', () => refreshLoadTypeControls(form));
   form.elements.trailerId?.addEventListener('change', () => refreshLoadTypeControls(form));
   refreshLoadTypeControls(form);
+}
+
+function collectExtraStops(form) {
+  return [...form.querySelectorAll('[data-extra-stop]')].map((card, index) => {
+    const value = field => String(card.querySelector(`[data-extra-stop-field="${field}"]`)?.value || '').trim();
+    return {
+      id: `stop-${index + 1}`,
+      type: value('type') || 'delivery',
+      name: value('name'),
+      address: value('address'),
+      appointment: value('appointment'),
+      contactName: value('contactName'),
+      phone: value('phone'),
+      notes: value('notes')
+    };
+  }).filter(stop => stop.name || stop.address);
+}
+
+function refreshExtraStopsPayload(form) {
+  const payload = document.getElementById('extraStopsPayload');
+  if (payload) payload.value = JSON.stringify(collectExtraStops(form));
+}
+
+function bindExtraStops() {
+  const form = document.getElementById('loadForm');
+  const list = document.getElementById('extraStopsList');
+  const addBtn = document.getElementById('addExtraStopBtn');
+  if (!form || !list || !addBtn) return;
+  addBtn.onclick = () => {
+    list.insertAdjacentHTML('beforeend', renderExtraStopTemplate(list.children.length + 1));
+    bindExtraStops();
+    refreshExtraStopsPayload(form);
+  };
+  list.querySelectorAll('.remove-extra-stop').forEach(btn => {
+    btn.onclick = () => {
+      btn.closest('[data-extra-stop]')?.remove();
+      refreshExtraStopsPayload(form);
+    };
+  });
+  list.querySelectorAll('input,select,textarea').forEach(input => {
+    input.oninput = () => refreshExtraStopsPayload(form);
+    input.onchange = () => refreshExtraStopsPayload(form);
+  });
+  form.addEventListener('submit', () => refreshExtraStopsPayload(form), { once: true });
 }
 
 function bindDispatchBoard() {

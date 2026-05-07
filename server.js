@@ -236,6 +236,22 @@ function requiresHeavyLicense(payload, power, trailer) {
   return ['tractor', 'day_cab', 'sleeper_cab'].includes(power?.type) || Boolean(trailer);
 }
 function loadDetailPayload(body) {
+  let extraStops = [];
+  try {
+    const parsed = JSON.parse(body.extraStops || '[]');
+    if (Array.isArray(parsed)) {
+      extraStops = parsed.slice(0, 12).map((stop, index) => ({
+        id: String(stop.id || `stop-${index + 1}`),
+        type: ['pickup', 'delivery'].includes(String(stop.type || '').toLowerCase()) ? String(stop.type).toLowerCase() : 'delivery',
+        name: String(stop.name || '').trim(),
+        address: String(stop.address || '').trim(),
+        appointment: String(stop.appointment || '').trim(),
+        contactName: String(stop.contactName || '').trim(),
+        phone: String(stop.phone || '').trim(),
+        notes: String(stop.notes || '').trim()
+      })).filter(stop => stop.name || stop.address);
+    }
+  } catch {}
   return {
     hazmatRequired: body.hazmatRequired === true || body.hazmatRequired === 'true',
     temperatureControlled: body.temperatureControlled === true || body.temperatureControlled === 'true',
@@ -266,7 +282,8 @@ function loadDetailPayload(body) {
     floorLoaded: String(body.floorLoaded || '').trim(),
     vanPieceCount: String(body.vanPieceCount || '').trim(),
     expediteService: String(body.expediteService || '').trim(),
-    sprinterNotes: String(body.sprinterNotes || '').trim()
+    sprinterNotes: String(body.sprinterNotes || '').trim(),
+    extraStops
   };
 }
 function loadPayload(body) {
@@ -384,6 +401,7 @@ function publicLoadPayload(load) {
     deliveryName: load.deliveryName,
     deliveryAddress: load.deliveryAddress,
     deliveryAppointment: load.deliveryAppointment,
+    extraStops: Array.isArray(load.loadDetails?.extraStops) ? load.loadDetails.extraStops : [],
     commodity: load.commodity,
     pieces: load.pieces,
     status: load.status,

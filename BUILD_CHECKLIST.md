@@ -49,6 +49,7 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 - [ ] Drag-and-drop load assignment.
 - [ ] Driver availability schedule.
 - [x] Unassigned loads queue.
+- [x] Extra stops for multi-pickup or multi-delivery loads.
 - [ ] Late load alerts.
 - [ ] Exception reporting: refused freight, damaged freight, waiting time, no dock, customer closed.
 - [ ] Rate, accessorials, detention, lumper, tolls, extra stop fees.

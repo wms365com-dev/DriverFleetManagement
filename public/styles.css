@@ -130,6 +130,14 @@ textarea { min-height: 88px; resize: vertical; }
 .dispatch-stop small { color:var(--muted); }
 .dispatch-assign-form label { font-size:11px; gap:5px; }
 .dispatch-assign-form select { min-height:36px; border-radius:10px; padding:8px 10px; font-size:12px; }
+.extra-stops-panel { display:grid; gap:10px; padding:12px; border:1px solid rgba(90,166,232,.22); border-radius:12px; background:rgba(90,166,232,.055); }
+.extra-stops-list { display:grid; gap:10px; }
+.extra-stop-card { display:grid; gap:10px; padding:12px; border:1px solid var(--line); border-radius:12px; background:rgba(9,17,30,.55); }
+.extra-stop-summary { display:grid; gap:8px; padding:10px; border:1px solid rgba(67,166,255,.18); border-radius:10px; background:rgba(67,166,255,.055); }
+.extra-stop-summary strong { font-size:12px; text-transform:uppercase; color:#c8d4e3; }
+.extra-stop-summary div { display:grid; gap:2px; }
+.extra-stop-summary span { color:#9ed6ff; font-size:11px; font-weight:800; }
+.extra-stop-summary small { color:var(--muted); }
 .load-card { border:1px solid var(--line); border-radius:18px; padding:14px; background:rgba(255,255,255,.03); display:grid; gap:12px; }
 .load-checklist { display:grid; gap:8px; padding:10px; border:1px solid var(--line); border-radius:10px; background:rgba(169,184,205,.055); }
 .load-checklist strong { font-size:12px; text-transform:uppercase; color:#c8d4e3; }

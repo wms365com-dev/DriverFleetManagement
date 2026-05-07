@@ -75,6 +75,7 @@
 
     function render(load) {
       const events = [...(load.events || [])].sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+      const extraStops = Array.isArray(load.extraStops) ? load.extraStops : [];
       root.innerHTML = `
         <div class="tracking-hero">
           <div>
@@ -101,6 +102,12 @@
             <p>${esc(load.deliveryAddress || 'Address pending')}</p>
             <small>${fmt(load.deliveryAppointment)}</small>
           </article>
+          ${extraStops.map((stop, index) => `<article>
+            <span>${esc((stop.type || 'Stop').toUpperCase())} ${index + 1}</span>
+            <strong>${esc(stop.name || 'Extra stop')}</strong>
+            <p>${esc(stop.address || 'Address pending')}</p>
+            <small>${fmt(stop.appointment)}</small>
+          </article>`).join('')}
         </div>
         <div class="tracking-details">
           <div><span>Reference</span><strong>${esc(load.referenceNumber || 'Not provided')}</strong></div>
