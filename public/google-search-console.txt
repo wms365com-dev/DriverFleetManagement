@@ -1,0 +1,8 @@
+Dispatcher365 Google Search Console setup
+
+Public SEO files:
+- https://dispatcher365.co/robots.txt
+- https://dispatcher365.co/sitemap.xml
+
+When Google Search Console gives you an HTML verification file, place that exact file in this public folder and redeploy.
+The filename usually looks like google1234567890abcdef.html.

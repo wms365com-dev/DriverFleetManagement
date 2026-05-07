@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /portal
+Disallow: /login
+Disallow: /app
+Disallow: /track/
+Disallow: /uploads/
+
+Sitemap: https://dispatcher365.co/sitemap.xml
