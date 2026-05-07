@@ -194,6 +194,7 @@ const loadDocumentRequirements = {
   sprinter_van: ['pod', 'signature']
 };
 const publicDocumentTypes = new Set(['bol', 'signed_bol', 'pod', 'proof', 'delivery', 'receipt', 'delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof', 'securement_photo', 'tarp_photo']);
+const defaultPublicDocumentTypes = ['bol', 'signed_bol', 'pod'];
 const inactiveLoadStatuses = new Set(['delivered', 'pod_uploaded', 'closed', 'cancelled']);
 function isActiveLoad(load) {
   return !inactiveLoadStatuses.has(String(load.status || 'new'));
@@ -343,10 +344,14 @@ function validateLoadCloseRequirements(load, status) {
 }
 function publicLoadPayload(load) {
   if (!load) return null;
+  const visibleDocTypes = new Set(Array.isArray(load.loadDetails?.publicDocumentTypes) ? load.loadDetails.publicDocumentTypes : defaultPublicDocumentTypes);
+  const { customerEmail, customerPhone, publicDocumentTypes: _publicDocumentTypes, ...publicLoadDetails } = load.loadDetails || {};
   return {
     loadNumber: load.loadNumber,
     loadType: load.loadType,
-    loadDetails: load.loadDetails || {},
+    loadDetails: publicLoadDetails,
+    companyName: load.companyName || '',
+    companyCode: load.companyCode || '',
     customer: load.customer,
     referenceNumber: load.referenceNumber,
     pickupName: load.pickupName,
@@ -366,6 +371,7 @@ function publicLoadPayload(load) {
     })),
     documents: (load.documents || [])
       .filter(doc => publicDocumentTypes.has(String(doc.type || '').toLowerCase()))
+      .filter(doc => visibleDocTypes.has(String(doc.type || '').toLowerCase()))
       .map(doc => ({
         type: doc.type || 'document',
         note: doc.note || '',
@@ -383,7 +389,9 @@ function demoPublicLoad(token) {
   return {
     loadNumber: 'DEMO0001-2026-000777',
     loadType: 'straight_truck',
-    loadDetails: { palletCount: '2', cartonCount: '30', liftgateRequired: 'No' },
+    loadDetails: { palletCount: '2', cartonCount: '30', liftgateRequired: 'No', publicDocumentTypes: ['pod'] },
+    companyName: 'Dispatcher365 Demo Fleet',
+    companyCode: 'DEMO0001',
     customer: 'Demo Customer',
     referenceNumber: 'ORLANDO-35',
     pickupName: 'Dispatcher365 Demo Warehouse',
@@ -988,6 +996,21 @@ app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverPro
     res.status(400).json({ error: error.message || 'Unable to upload document' });
   }
 });
+app.patch('/api/loads/:id/customer-visibility', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const publicDocumentTypes = Array.isArray(req.body.publicDocumentTypes)
+      ? req.body.publicDocumentTypes.map(type => String(type || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    const updated = await db.updateLoadPublicSettings(req.companyId, Number(req.params.id), {
+      publicDocumentTypes,
+      customerEmail: String(req.body.customerEmail || '').trim(),
+      customerPhone: String(req.body.customerPhone || '').trim()
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update customer visibility' });
+  }
+});
 app.post('/api/loads/:id/signature', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
   try {
     const loads = await db.getLoads(req.companyId);
@@ -1034,6 +1057,14 @@ app.get('/api/public/loads/:token', async (req, res) => {
   try {
     const load = await db.getPublicLoadByToken(req.params.token) || demoPublicLoad(req.params.token);
     if (!load) return res.status(404).json({ error: 'Tracking link not found' });
+    if (!load.companyName && load.companyId) {
+      const companies = await db.getCompanies();
+      const company = companies.find(item => Number(item.id) === Number(load.companyId));
+      if (company) {
+        load.companyName = company.name;
+        load.companyCode = company.code;
+      }
+    }
     res.json(publicLoadPayload(load));
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to load tracking details' });

@@ -24,10 +24,10 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 - [x] Hazmat/temp/liftgate requirements.
 
 ### Customer Portal
-- [ ] Customer search by tracking number.
-- [ ] Branded tracking page per company.
-- [ ] Public POD/BOL visibility settings.
-- [ ] Customer email/SMS tracking link.
+- [x] Customer search by tracking number.
+- [x] Branded tracking page per company.
+- [x] Public POD/BOL visibility settings.
+- [x] Customer email/SMS tracking link.
 
 ### Notifications
 - [ ] Driver assigned a load.
@@ -78,6 +78,6 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 
 1. [x] Add required load checklist by load type.
 2. [x] Add driver/equipment availability and out-of-service blocking.
-3. [ ] Add customer tracking improvements with POD visibility.
+3. [x] Add customer tracking improvements with POD visibility.
 4. [ ] Add notification system.
 5. [ ] Add dispatch calendar/board.

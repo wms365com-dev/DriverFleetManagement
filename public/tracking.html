@@ -12,7 +12,7 @@
   <link rel="manifest" href="/site.webmanifest" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/styles.css?v=assignment-guards" />
+  <link rel="stylesheet" href="/styles.css?v=customer-portal" />
 </head>
 <body class="tracking-body">
   <main class="tracking-shell">
@@ -46,6 +46,8 @@
       in_transit: 'In Transit',
       at_delivery: 'At Delivery',
       delivered: 'Delivered',
+      pod_uploaded: 'POD Uploaded',
+      closed: 'Closed',
       exception: 'Exception',
       cancelled: 'Cancelled'
     };
@@ -78,12 +80,13 @@
           <div>
             <p class="eyebrow">Customer Tracking</p>
             <h1>Load ${esc(load.loadNumber)}</h1>
-            <p>${esc(load.customer || 'Shipment status')}</p>
+            <p>${esc(load.customer || load.companyName || 'Shipment status')}</p>
+            ${load.companyName ? `<p class="tiny">Carrier: ${esc(load.companyName)}${load.companyCode ? ` · ${esc(load.companyCode)}` : ''}</p>` : ''}
           </div>
           <span class="tracking-status ${statusClass(load.status)}">${esc(label(load.status))}</span>
         </div>
         <div class="tracking-progress">
-          ${['assigned','en_route_pickup','picked_up','in_transit','at_delivery','delivered'].map(step => `<span class="${events.some(event => event.status === step) || load.status === step ? 'done' : ''}">${esc(label(step))}</span>`).join('')}
+          ${['assigned','en_route_pickup','picked_up','in_transit','at_delivery','delivered','pod_uploaded','closed'].map(step => `<span class="${events.some(event => event.status === step) || load.status === step ? 'done' : ''}">${esc(label(step))}</span>`).join('')}
         </div>
         <div class="tracking-grid">
           <article>
@@ -114,7 +117,7 @@
         <section class="tracking-section">
           <h2>Documents</h2>
           <div class="tracking-docs">
-            ${(load.documents || []).map(doc => `<a href="${esc(doc.url)}" target="_blank" rel="noopener"><strong>${esc(doc.type || 'Document')}</strong><span>${esc(doc.note || 'View uploaded file')}</span><small>${fmt(doc.uploadedAt)}</small></a>`).join('') || '<p>No customer documents uploaded yet.</p>'}
+            ${(load.documents || []).map(doc => doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener"><strong>${esc(doc.type || 'Document')}</strong><span>${esc(doc.note || 'View uploaded file')}</span><small>${fmt(doc.uploadedAt)}</small></a>` : `<article><strong>${esc(doc.type || 'Document')}</strong><span>${esc(doc.note || 'Proof recorded')}</span><small>${fmt(doc.uploadedAt)}</small></article>`).join('') || '<p>No customer documents uploaded yet.</p>'}
           </div>
         </section>`;
     }

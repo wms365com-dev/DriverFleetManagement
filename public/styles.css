@@ -128,6 +128,8 @@ textarea { min-height: 88px; resize: vertical; }
 .customer-link-row { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:8px; align-items:center; padding:8px; border:1px solid var(--line); border-radius:10px; background:rgba(90,166,232,.055); }
 .customer-link-row input { min-height:38px; font-size:12px; }
 .customer-link-row .small-btn { margin-top:0; white-space:nowrap; }
+.customer-visibility-form { padding:10px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.025); }
+.visibility-options { display:grid; grid-template-columns:repeat(auto-fit, minmax(145px, 1fr)); gap:6px 10px; }
 .driver-load-card .small-btn { margin-top:0; }
 .signature-panel { border:1px solid var(--line); border-radius:10px; padding:10px; background:rgba(255,255,255,.025); }
 .signature-panel summary { cursor:pointer; font-weight:800; color:#dbe5f1; }
@@ -1048,7 +1050,7 @@ td {
 .tracking-timeline p { grid-column:2 / -1; color:#c8d4e3; }
 .tracking-timeline small { color:#9aa9bb; }
 .tracking-docs { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
-.tracking-docs a { display:grid; gap:6px; padding:12px; border:1px solid rgba(169,184,205,.16); border-radius:10px; color:#f4f7fb; text-decoration:none; background:rgba(8,16,24,.36); }
+.tracking-docs a, .tracking-docs article { display:grid; gap:6px; padding:12px; border:1px solid rgba(169,184,205,.16); border-radius:10px; color:#f4f7fb; text-decoration:none; background:rgba(8,16,24,.36); }
 .tracking-docs span, .tracking-docs small { color:#9aa9bb; }
 @media (max-width: 760px) {
   .tracking-hero, .tracking-grid, .tracking-details, .tracking-progress, .tracking-lookup-form { grid-template-columns:1fr; display:grid; }

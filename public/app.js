@@ -559,6 +559,14 @@ function publicTrackingUrl(load) {
   if (!load?.publicTrackingToken) return '';
   return `${window.location.origin}/track/${encodeURIComponent(load.publicTrackingToken)}`;
 }
+function publicVisibleDocTypes(load) {
+  const configured = load.loadDetails?.publicDocumentTypes;
+  return new Set(Array.isArray(configured) ? configured : ['bol', 'signed_bol', 'pod']);
+}
+function customerShareText(load) {
+  const url = publicTrackingUrl(load);
+  return `Shipment update for load ${load.loadNumber}: ${loadStatusLabel(load.status)}. Track it here: ${url}`;
+}
 function activeAssignmentForDriver(driverId) {
   return state.assignments.find(a => Number(a.driverId) === Number(driverId) && a.active);
 }
@@ -1505,7 +1513,14 @@ function renderLoadCard(load, dispatcher = false) {
   const pickupDetails = stopSiteDetails(load, 'pickup');
   const deliveryDetails = stopSiteDetails(load, 'delivery');
   const trackingUrl = publicTrackingUrl(load);
-  const detailText = load.loadDetails ? Object.entries(load.loadDetails).filter(([, value]) => value).slice(0, 4).map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1')}: ${value}`).join(' · ') : '';
+  const visibleTypes = publicVisibleDocTypes(load);
+  const publicDocOptions = loadDocumentTypes
+    .filter(([type]) => ['bol', 'signed_bol', 'pod', 'delivery_order', 'port_pickup_proof', 'container_photo', 'seal_photo', 'empty_return_proof', 'securement_photo', 'tarp_photo', 'receipt'].includes(type))
+    .map(([type, label]) => `<label class="inline-check"><input type="checkbox" name="publicDocumentTypes" value="${attr(type)}" ${visibleTypes.has(type) ? 'checked' : ''} /> ${esc(label)}</label>`).join('');
+  const shareText = trackingUrl ? encodeURIComponent(customerShareText(load)) : '';
+  const mailHref = trackingUrl ? `mailto:${attr(load.loadDetails?.customerEmail || '')}?subject=${encodeURIComponent(`Tracking ${load.loadNumber}`)}&body=${shareText}` : '';
+  const smsHref = trackingUrl ? `sms:${attr(load.loadDetails?.customerPhone || '')}?&body=${shareText}` : '';
+  const detailText = load.loadDetails ? Object.entries(load.loadDetails).filter(([key, value]) => value && !['publicDocumentTypes', 'customerEmail', 'customerPhone'].includes(key) && !Array.isArray(value) && typeof value !== 'object').slice(0, 4).map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1')}: ${value}`).join(' · ') : '';
   return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.loadType, detailText, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
     <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
@@ -1515,7 +1530,13 @@ function renderLoadCard(load, dispatcher = false) {
     ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
     ${renderLoadChecklist(load)}
     ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
-    ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>` : ''}
+    ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>
+      <form class="customer-visibility-form stack compact" data-load-visibility="${attr(load.id)}">
+        <div class="split"><label>Customer email<input name="customerEmail" value="${attr(load.loadDetails?.customerEmail || '')}" placeholder="customer@example.com" /></label><label>Customer phone<input name="customerPhone" value="${attr(load.loadDetails?.customerPhone || '')}" placeholder="+1 555 555 5555" /></label></div>
+        <div class="compatibility-note">Public documents visible on tracking page</div>
+        <div class="visibility-options">${publicDocOptions}</div>
+        <div class="load-actions"><button class="btn ghost small-btn" type="submit">Save Public Visibility</button><a class="btn ghost small-btn" href="${mailHref}">Email Link</a><a class="btn ghost small-btn" href="${smsHref}">SMS Link</a></div>
+      </form>` : ''}
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
     ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
   </article>`;
@@ -2090,6 +2111,27 @@ function bindTrackingLinks() {
       } catch {
         setToast(text, 'success');
       }
+    };
+  });
+  document.querySelectorAll('.customer-visibility-form').forEach(form => {
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const btn = e.submitter || form.querySelector('button[type="submit"]');
+      await guardedSubmit(`visibility${form.dataset.loadVisibility}`, btn, 'Saving...', async () => {
+        const fd = new FormData(form);
+        await api(`/api/loads/${form.dataset.loadVisibility}/customer-visibility`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerEmail: fd.get('customerEmail') || '',
+            customerPhone: fd.get('customerPhone') || '',
+            publicDocumentTypes: fd.getAll('publicDocumentTypes')
+          })
+        });
+        await loadEverything();
+        render();
+        setToast('Customer visibility updated', 'success');
+      });
     };
   });
 }

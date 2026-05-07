@@ -929,6 +929,15 @@ const fileDb = {
     writeFileDb(db);
     return mapLoad(load);
   },
+  async updateLoadPublicSettings(companyId, id, settings) {
+    const db = readFileDb();
+    const load = db.loads.find(l => Number(l.companyId) === Number(companyId) && Number(l.id) === Number(id));
+    if (!load) throw new Error('Load not found.');
+    load.loadDetails = { ...(load.loadDetails || {}), ...settings };
+    load.updatedAt = new Date().toISOString();
+    writeFileDb(db);
+    return mapLoad(load);
+  },
   async getBugReports(companyId) { return readFileDb().bugReports.filter(r => !companyId || Number(r.companyId) === Number(companyId)).map(mapBugReport).sort((a, b) => Number(b.id) - Number(a.id)); },
   async createBugReport(companyId, payload, user) {
     const db = readFileDb();
@@ -1149,6 +1158,11 @@ const pgDb = {
     const docs = [...(existing.rows[0].documents || []), doc];
     const events = [...(existing.rows[0].events || []), commonMethods.buildLoadEvent(existing.rows[0].status, `${document.type || 'document'} uploaded`, user)];
     const r = await pool.query('UPDATE loads SET documents=$3::jsonb, events=$4::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *', [companyId, id, JSON.stringify(docs), JSON.stringify(events)]);
+    return mapLoad(r.rows[0]);
+  },
+  async updateLoadPublicSettings(companyId, id, settings) {
+    const r = await pool.query(`UPDATE loads SET load_details=COALESCE(load_details, '{}'::jsonb) || $3::jsonb, updated_at=NOW() WHERE company_id=$1 AND id=$2 RETURNING *`, [companyId, id, JSON.stringify(settings || {})]);
+    if (!r.rows[0]) throw new Error('Load not found.');
     return mapLoad(r.rows[0]);
   },
   async getBugReports(companyId) { const r = await pool.query('SELECT * FROM bug_reports WHERE ($1::int IS NULL OR company_id=$1) ORDER BY id DESC', [companyId || null]); return r.rows.map(mapBugReport); },
