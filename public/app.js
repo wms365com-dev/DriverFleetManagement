@@ -72,6 +72,7 @@ const loadStatusFlow = [
 const staffOperationsNav = [
   ['dispatchHome', 'Dashboard'],
   ['loads', 'Dispatch / Loads'],
+  ['locations', 'Customers / Locations'],
   ['map', 'Live Map'],
   ['drivers', 'Drivers'],
   ['vehicles', 'Equipment'],
@@ -233,7 +234,23 @@ function trailers() {
   return state.vehicles.filter(v => (v.category || 'power_unit') !== 'power_unit');
 }
 function addressSuggestions(type = 'both') {
+  if (type === 'all') return state.addresses;
   return state.addresses.filter(item => ['both', type].includes(item.type || 'both'));
+}
+function uniqueCustomers() {
+  const names = new Set();
+  for (const load of state.loads) if (load.customer) names.add(String(load.customer).trim());
+  for (const address of state.addresses) {
+    if (address.customer) names.add(String(address.customer).trim());
+    else if (address.name) names.add(String(address.name).trim());
+  }
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+function locationLabel(item) {
+  return [item.customer, item.name].filter(Boolean).join(' - ') || item.address || 'Saved location';
+}
+function activeAssignmentForDriver(driverId) {
+  return state.assignments.find(a => Number(a.driverId) === Number(driverId) && a.active);
 }
 function combinedAddressSuggestions(type = 'both') {
   const byAddress = new Map();
@@ -250,7 +267,7 @@ function renderAddressDatalist(id, type) {
   return `<datalist id="${attr(id)}">${combinedAddressSuggestions(type).map(item => renderAddressOption(item)).join('')}</datalist>`;
 }
 function renderAddressOption(item) {
-  return `<option value="${attr(item.address)}" label="${attr([item.name, item.source === 'geoapify' ? 'Geoapify' : item.type].filter(Boolean).join(' - '))}"></option>`;
+  return `<option value="${attr(item.address)}" label="${attr([locationLabel(item), item.source === 'geoapify' ? 'Geoapify' : item.type].filter(Boolean).join(' - '))}"></option>`;
 }
 function findAddressByValue(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -389,6 +406,7 @@ function getNavItems() {
     return [
       ['adminHome', 'Dashboard'],
       ['loads', 'Dispatch / Loads'],
+      ['locations', 'Customers / Locations'],
       ['map', 'Live Map'],
       ['drivers', 'Drivers'],
       ['vehicles', 'Equipment'],
@@ -480,6 +498,7 @@ function getViewTitle(view) {
     adminHome: 'Admin Home',
     dispatchHome: 'Dispatch Home',
     loads: 'Load Dispatch',
+    locations: 'Customers / Locations',
     companies: 'Company Setup',
     users: 'Users & Access',
     dashboard: 'Dispatch Dashboard',
@@ -529,6 +548,7 @@ function renderView(view) {
   if (view === 'adminHome') return renderAdminHome();
   if (view === 'dispatchHome') return renderDispatchHome();
   if (view === 'loads') return renderLoads();
+  if (view === 'locations') return renderLocations();
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
@@ -936,6 +956,9 @@ function renderShifts() {
 function renderLoads() {
   const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
   const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}">${esc(v.unitNumber)} - ${esc(typeLabel(v.type))}</option>`).join('');
+  const customers = uniqueCustomers();
+  const pickupLocations = addressSuggestions('pickup');
+  const deliveryLocations = addressSuggestions('delivery');
   return `
     <div class="two-col">
       <section class="panel glass">
@@ -947,16 +970,21 @@ function renderLoads() {
         </div>
       </section>
       <section class="panel glass">
-        <div class="panel-head"><h3>Create Load</h3><p>Assign pickup, delivery, driver, truck, and trailer.</p></div>
+        <div class="panel-head"><h3>Create Load</h3><p>Use saved customers, locations, and driver assignments to reduce typing.</p></div>
         <form id="loadForm" class="stack compact">
-          <div class="split"><label>Load #<input name="loadNumber" required /></label><label>Reference<input name="referenceNumber" /></label></div>
-          <div class="split"><label>Customer<input name="customer" /></label><label>Broker<input name="broker" /></label></div>
+          <div class="form-step"><span>1</span><strong>Load Details</strong></div>
+          <div class="split"><label>Load #<input name="loadNumber" required placeholder="Required" /></label><label>Reference<input name="referenceNumber" /></label></div>
+          <div class="split"><label>Customer<input name="customer" list="customerNames" placeholder="Start typing saved customer" /></label><label>Broker<input name="broker" /></label></div>
+          <div class="form-step"><span>2</span><strong>Stops</strong></div>
+          <label>Saved pickup location<select data-location-select="pickup"><option value="">Choose saved pickup</option>${pickupLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
           <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
           <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" data-address-type="pickup" /></label>
           <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
+          <label>Saved delivery location<select data-location-select="delivery"><option value="">Choose saved delivery</option>${deliveryLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
           <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
           <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" data-address-type="delivery" /></label>
           <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
+          <div class="form-step"><span>3</span><strong>Freight and Assignment</strong></div>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
           <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}">${esc(`${d.firstName || ''} ${d.lastName || ''}`.trim())}</option>`).join('')}</select></label>
@@ -964,18 +992,23 @@ function renderLoads() {
           <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
           <label>Notes<textarea name="notes"></textarea></label>
           <button class="btn primary" type="submit">Create Load</button>
+          <datalist id="customerNames">${customers.map(name => `<option value="${attr(name)}"></option>`).join('')}</datalist>
           ${renderAddressDatalist('pickupAddresses', 'pickup')}
           ${renderAddressDatalist('deliveryAddresses', 'delivery')}
         </form>
         <hr class="soft-rule" />
-        <div class="panel-head"><h3>Preload Address</h3><p>Save frequent pickup and delivery locations for type-to-select.</p></div>
+        <div class="panel-head"><h3>Quick Save Location</h3><p>Save frequent shippers and receivers while dispatching.</p></div>
         <form id="addressForm" class="stack compact">
-          <div class="split"><label>Location name<input name="name" placeholder="Customer, shipper, receiver" /></label><label>Type<select name="type"><option value="both">Pickup & delivery</option><option value="pickup">Pickup only</option><option value="delivery">Delivery only</option></select></label></div>
-          <label>Address<input name="address" required autocomplete="street-address" /></label>
+          <label>Customer<input name="customer" list="customerNames" placeholder="Customer account" /></label>
+          <div class="split"><label>Location name<input name="name" placeholder="Shipper, receiver, dock" /></label><label>Type<select name="type"><option value="both">Pickup & delivery</option><option value="pickup">Pickup only</option><option value="delivery">Delivery only</option></select></label></div>
+          <label>Address<input name="address" required autocomplete="street-address" list="allAddresses" data-address-input="name" data-address-type="all" /></label>
+          <div class="split"><label>Contact<input name="contactName" /></label><label>Phone<input name="phone" /></label></div>
+          <div class="split"><label>Hours<input name="hours" placeholder="Mon-Fri 7-3" /></label><label>Dock notes<input name="dockNotes" placeholder="Door, buzzer, gate code" /></label></div>
           <label>Notes<textarea name="notes"></textarea></label>
           <button class="btn ghost" type="submit">Save Address</button>
+          ${renderAddressDatalist('allAddresses', 'all')}
         </form>
-        <div class="address-chip-row">${state.addresses.slice(0, 10).map(item => `<span class="address-chip">${esc(item.name || item.address)}<small>${esc(item.type || 'both')}</small></span>`).join('') || '<p class="tiny">No saved addresses yet.</p>'}</div>
+        <div class="address-chip-row">${state.addresses.slice(0, 10).map(item => `<span class="address-chip">${esc(locationLabel(item))}<small>${esc(item.type || 'both')}</small></span>`).join('') || '<p class="tiny">No saved addresses yet.</p>'}</div>
       </section>
     </div>`;
 }
@@ -1089,6 +1122,51 @@ function renderReports() {
       <section class="panel glass span-2">
         <div class="panel-head"><h3>Future Exports</h3><p>CSV/PDF exports can be added here next.</p></div>
         ${emptyState('Reports are summarized on-screen', 'Next step: add export buttons for inspections, loads, defects, and driver activity.')}
+      </section>
+    </div>`;
+}
+
+function renderLocations() {
+  const customers = uniqueCustomers();
+  const rows = state.addresses.map(item => `
+    <tr data-search="${searchableText(item.customer, item.name, item.address, item.type, item.contactName, item.phone, item.hours, item.dockNotes, item.notes)}">
+      <td><strong>${esc(locationLabel(item))}</strong><p class="tiny">${esc(item.address)}</p></td>
+      <td>${statusTag(item.type || 'both')}</td>
+      <td>${esc(item.contactName || '')}<p class="tiny">${esc(item.phone || item.email || '')}</p></td>
+      <td>${esc(item.hours || '')}<p class="tiny">${esc(item.dockNotes || item.notes || '')}</p></td>
+    </tr>`).join('');
+  return `
+    <div class="two-col">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Customers / Locations</h3><p>${state.addresses.length} saved company locations</p></div>
+        ${listSearch('locations', 'Search customer, address, contact, dock notes')}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Location</th><th>Use</th><th>Contact</th><th>Receiving Details</th></tr></thead>
+          <tbody data-filter-list="locations">
+            ${rows || '<tr><td colspan="4">No saved locations yet</td></tr>'}
+            <tr data-filter-empty hidden><td colspan="4">No matching locations</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Add Location</h3><p>Build the company address book used by dispatch.</p></div>
+        <form id="locationForm" class="stack compact">
+          <label>Customer<input name="customer" list="locationCustomerNames" placeholder="Customer account" /></label>
+          <div class="split"><label>Location name<input name="name" placeholder="Shipper, receiver, yard, dock" /></label><label>Type<select name="type"><option value="both">Pickup & delivery</option><option value="pickup">Pickup only</option><option value="delivery">Delivery only</option></select></label></div>
+          <label>Address<input name="address" required autocomplete="street-address" list="allAddresses" data-address-input="name" data-address-type="all" /></label>
+          <div class="split"><label>Contact<input name="contactName" /></label><label>Phone<input name="phone" /></label></div>
+          <label>Email<input name="email" type="email" /></label>
+          <div class="split"><label>Hours<input name="hours" placeholder="Mon-Fri 7-3" /></label><label>Dock notes<input name="dockNotes" placeholder="Door, buzzer, gate code" /></label></div>
+          <label>Notes<textarea name="notes" placeholder="Appointment process, check-in instructions, lumper notes"></textarea></label>
+          <button class="btn primary" type="submit">Save Location</button>
+          <datalist id="locationCustomerNames">${customers.map(name => `<option value="${attr(name)}"></option>`).join('')}</datalist>
+          ${renderAddressDatalist('allAddresses', 'all')}
+        </form>
+        <div class="data-entry-hints">
+          <article><strong>Faster load entry</strong><span>Saved stops appear as dropdowns on the dispatch form.</span></article>
+          <article><strong>Cleaner handoffs</strong><span>Contacts, hours, and dock notes stay with the company record.</span></article>
+          <article><strong>Less repeat typing</strong><span>New load addresses are remembered automatically after creation.</span></article>
+        </div>
       </section>
     </div>`;
 }
@@ -1284,6 +1362,12 @@ function bindView(view) {
     if (form) form.onsubmit = submitJsonForm('/api/loads');
     const addressForm = document.getElementById('addressForm');
     if (addressForm) addressForm.onsubmit = submitJsonForm('/api/addresses');
+    bindAddressInputs();
+    bindLoadEntryHelpers();
+  }
+  if (view === 'locations') {
+    const form = document.getElementById('locationForm');
+    if (form) form.onsubmit = submitJsonForm('/api/addresses');
     bindAddressInputs();
   }
   if (view === 'map') {
@@ -1651,11 +1735,43 @@ function bindAddressInputs() {
     };
     input.onchange = () => {
       const match = findAddressByValue(input.value);
-      if (!match?.name) return;
+      if (!match) return;
       const nameInput = input.form?.elements[input.dataset.addressInput];
-      if (nameInput && !nameInput.value) nameInput.value = match.name;
+      if (nameInput && !nameInput.value) nameInput.value = match.name || match.customer || '';
+      const customerInput = input.form?.elements.customer;
+      if (customerInput && !customerInput.value && match.customer) customerInput.value = match.customer;
     };
   });
+}
+
+function applyLocationToLoadForm(form, item, type) {
+  if (!form || !item) return;
+  const prefix = type === 'delivery' ? 'delivery' : 'pickup';
+  const nameInput = form.elements[`${prefix}Name`];
+  const addressInput = form.elements[`${prefix}Address`];
+  if (nameInput) nameInput.value = item.name || item.customer || '';
+  if (addressInput) addressInput.value = item.address || '';
+  if (form.elements.customer && !form.elements.customer.value && item.customer) form.elements.customer.value = item.customer;
+  const noteParts = [item.hours ? `Hours: ${item.hours}` : '', item.dockNotes ? `Dock: ${item.dockNotes}` : '', item.contactName ? `Contact: ${item.contactName}${item.phone ? ` ${item.phone}` : ''}` : ''].filter(Boolean);
+  if (noteParts.length && form.elements.notes && !form.elements.notes.value) form.elements.notes.value = noteParts.join('\n');
+}
+
+function bindLoadEntryHelpers() {
+  const form = document.getElementById('loadForm');
+  if (!form) return;
+  document.querySelectorAll('[data-location-select]').forEach(select => {
+    select.onchange = () => {
+      const item = findAddressByValue(select.value);
+      applyLocationToLoadForm(form, item, select.dataset.locationSelect);
+    };
+  });
+  const driverSelect = form.elements.driverId;
+  if (driverSelect) {
+    driverSelect.onchange = () => {
+      const assignment = activeAssignmentForDriver(driverSelect.value);
+      if (assignment && form.elements.vehicleId && !form.elements.vehicleId.value) form.elements.vehicleId.value = assignment.vehicleId || '';
+    };
+  }
 }
 
 async function lookupExternalAddresses(input, type) {

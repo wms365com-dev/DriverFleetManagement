@@ -100,6 +100,12 @@ function normalizeFileDb() {
   for (const address of db.addresses) {
     if (!address.companyId) { address.companyId = seedCompany.id; changed = true; }
     if (!address.type) { address.type = 'both'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'customer')) { address.customer = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'contactName')) { address.contactName = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'phone')) { address.phone = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'email')) { address.email = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'hours')) { address.hours = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(address, 'dockNotes')) { address.dockNotes = ''; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(address, 'createdAt')) { address.createdAt = new Date().toISOString(); changed = true; }
     if (!Object.prototype.hasOwnProperty.call(address, 'lastUsedAt')) { address.lastUsedAt = null; changed = true; }
   }
@@ -221,9 +227,15 @@ function mapAddress(r) {
   return {
     id: r.id,
     companyId: r.company_id ?? r.companyId,
+    customer: r.customer || '',
     name: r.name || '',
     address: r.address || '',
     type: r.type || 'both',
+    contactName: r.contact_name || r.contactName || '',
+    phone: r.phone || '',
+    email: r.email || '',
+    hours: r.hours || '',
+    dockNotes: r.dock_notes || r.dockNotes || '',
     notes: r.notes || '',
     createdAt: r.created_at || r.createdAt,
     lastUsedAt: r.last_used_at || r.lastUsedAt || null
@@ -425,9 +437,15 @@ async function initPostgres() {
   CREATE TABLE IF NOT EXISTS addresses (
     id SERIAL PRIMARY KEY,
     company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    customer TEXT,
     name TEXT,
     address TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'both',
+    contact_name TEXT,
+    phone TEXT,
+    email TEXT,
+    hours TEXT,
+    dock_notes TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_used_at TIMESTAMPTZ
@@ -461,6 +479,12 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS temperature_capable BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS liftgate BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hazmat_capable BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS customer TEXT`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS contact_name TEXT`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS email TEXT`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS hours TEXT`);
+  await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS dock_notes TEXT`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS addresses_company_address_unique ON addresses (company_id, lower(address))`);
 
   const companyCount = Number((await pool.query('SELECT COUNT(*) FROM companies')).rows[0].count);
@@ -548,9 +572,15 @@ const commonMethods = {
         seen.set(key, {
           id: `load-${seen.size + 1}`,
           companyId: load.companyId,
+          customer: String(load.customer || '').trim(),
           name: String(load[nameKey] || '').trim(),
           address,
           type,
+          contactName: '',
+          phone: '',
+          email: '',
+          hours: '',
+          dockNotes: '',
           notes: '',
           createdAt: load.createdAt || load.updatedAt || null,
           lastUsedAt: load.updatedAt || load.createdAt || null
@@ -709,14 +739,35 @@ const fileDb = {
     const db = readFileDb();
     const existing = db.addresses.find(a => Number(a.companyId) === Number(companyId) && String(a.address || '').toLowerCase() === address.toLowerCase());
     if (existing) {
+      existing.customer = String(payload.customer || existing.customer || '').trim();
       existing.name = String(payload.name || existing.name || '').trim();
       existing.type = payload.type || existing.type || 'both';
+      existing.contactName = String(payload.contactName || existing.contactName || '').trim();
+      existing.phone = String(payload.phone || existing.phone || '').trim();
+      existing.email = String(payload.email || existing.email || '').trim();
+      existing.hours = String(payload.hours || existing.hours || '').trim();
+      existing.dockNotes = String(payload.dockNotes || existing.dockNotes || '').trim();
       existing.notes = payload.notes || existing.notes || '';
       existing.lastUsedAt = new Date().toISOString();
       writeFileDb(db);
       return mapAddress(existing);
     }
-    const item = { id: nextId(db.addresses), companyId, name: String(payload.name || '').trim(), address, type: payload.type || 'both', notes: payload.notes || '', createdAt: new Date().toISOString(), lastUsedAt: payload.lastUsedAt || null };
+    const item = {
+      id: nextId(db.addresses),
+      companyId,
+      customer: String(payload.customer || '').trim(),
+      name: String(payload.name || '').trim(),
+      address,
+      type: payload.type || 'both',
+      contactName: String(payload.contactName || '').trim(),
+      phone: String(payload.phone || '').trim(),
+      email: String(payload.email || '').trim(),
+      hours: String(payload.hours || '').trim(),
+      dockNotes: String(payload.dockNotes || '').trim(),
+      notes: payload.notes || '',
+      createdAt: new Date().toISOString(),
+      lastUsedAt: payload.lastUsedAt || null
+    };
     db.addresses.push(item);
     writeFileDb(db);
     return mapAddress(item);
@@ -731,8 +782,8 @@ const fileDb = {
     const load = { id: nextId(db.loads), companyId, ...payload, status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     db.loads.push(load);
     writeFileDb(db);
-    await this.upsertAddress(companyId, { name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', lastUsedAt: new Date().toISOString() });
-    await this.upsertAddress(companyId, { name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', lastUsedAt: new Date().toISOString() });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', lastUsedAt: new Date().toISOString() });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', lastUsedAt: new Date().toISOString() });
     return mapLoad(load);
   },
   async updateLoadStatus(companyId, id, status, note, user) {
@@ -913,9 +964,9 @@ const pgDb = {
   async upsertAddress(companyId, payload) {
     const address = String(payload.address || '').trim();
     if (!address) return null;
-    const r = await pool.query(`INSERT INTO addresses (company_id,name,address,type,notes,last_used_at) VALUES ($1,$2,$3,$4,$5,NOW())
-      ON CONFLICT (company_id, lower(address)) DO UPDATE SET name=COALESCE(NULLIF(EXCLUDED.name, ''), addresses.name), type=EXCLUDED.type, notes=COALESCE(NULLIF(EXCLUDED.notes, ''), addresses.notes), last_used_at=NOW()
-      RETURNING *`, [companyId, String(payload.name || '').trim(), address, payload.type || 'both', payload.notes || '']);
+    const r = await pool.query(`INSERT INTO addresses (company_id,customer,name,address,type,contact_name,phone,email,hours,dock_notes,notes,last_used_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+      ON CONFLICT (company_id, lower(address)) DO UPDATE SET customer=COALESCE(NULLIF(EXCLUDED.customer, ''), addresses.customer), name=COALESCE(NULLIF(EXCLUDED.name, ''), addresses.name), type=EXCLUDED.type, contact_name=COALESCE(NULLIF(EXCLUDED.contact_name, ''), addresses.contact_name), phone=COALESCE(NULLIF(EXCLUDED.phone, ''), addresses.phone), email=COALESCE(NULLIF(EXCLUDED.email, ''), addresses.email), hours=COALESCE(NULLIF(EXCLUDED.hours, ''), addresses.hours), dock_notes=COALESCE(NULLIF(EXCLUDED.dock_notes, ''), addresses.dock_notes), notes=COALESCE(NULLIF(EXCLUDED.notes, ''), addresses.notes), last_used_at=NOW()
+      RETURNING *`, [companyId, String(payload.customer || '').trim(), String(payload.name || '').trim(), address, payload.type || 'both', String(payload.contactName || '').trim(), String(payload.phone || '').trim(), String(payload.email || '').trim(), String(payload.hours || '').trim(), String(payload.dockNotes || '').trim(), payload.notes || '']);
     return mapAddress(r.rows[0]);
   },
   async getLoads(companyId) { const r = await pool.query('SELECT * FROM loads WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapLoad); },
@@ -926,8 +977,8 @@ const pgDb = {
     const status = payload.driverId ? 'assigned' : 'new';
     const events = [commonMethods.buildLoadEvent(status, 'Load created', user)];
     const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,delivery_name,delivery_address,delivery_appointment,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,status,JSON.stringify(events)]);
-    await this.upsertAddress(companyId, { name: payload.pickupName, address: payload.pickupAddress, type: 'pickup' });
-    await this.upsertAddress(companyId, { name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery' });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup' });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery' });
     return mapLoad(r.rows[0]);
   },
   async updateLoadStatus(companyId, id, status, note, user) {

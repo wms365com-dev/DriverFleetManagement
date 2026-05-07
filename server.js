@@ -148,9 +148,15 @@ function loadPayload(body) {
 function addressPayload(body) {
   const type = String(body.type || 'both');
   return {
+    customer: String(body.customer || '').trim(),
     name: String(body.name || '').trim(),
     address: String(body.address || '').trim(),
     type: ['pickup', 'delivery', 'both'].includes(type) ? type : 'both',
+    contactName: String(body.contactName || '').trim(),
+    phone: String(body.phone || '').trim(),
+    email: String(body.email || '').trim(),
+    hours: String(body.hours || '').trim(),
+    dockNotes: String(body.dockNotes || '').trim(),
     notes: String(body.notes || '').trim()
   };
 }

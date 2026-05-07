@@ -123,6 +123,11 @@ textarea { min-height: 88px; resize: vertical; }
 .doc-thumb { position:relative; color:var(--text); text-decoration:none; }
 .doc-thumb span { position:absolute; left:6px; bottom:6px; padding:3px 6px; border-radius:999px; background:rgba(0,0,0,.65); font-size:10px; text-transform:uppercase; }
 .soft-rule { width:100%; border:0; border-top:1px solid var(--line); margin:8px 0; }
+.form-step { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid rgba(67,166,255,.18); border-radius:14px; background:rgba(67,166,255,.055); color:var(--text); }
+.form-step span { width:24px; height:24px; border-radius:999px; display:grid; place-items:center; background:rgba(67,166,255,.2); color:#b7e1ff; font-size:12px; font-weight:800; }
+.data-entry-hints { display:grid; gap:10px; margin-top:14px; }
+.data-entry-hints article { display:grid; gap:4px; padding:12px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.03); }
+.data-entry-hints span { color:var(--muted); font-size:12px; }
 .address-chip-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .address-chip { display:inline-flex; align-items:center; gap:8px; max-width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.04); color:var(--text); font-size:12px; }
 .address-chip small { color:var(--muted); text-transform:uppercase; font-size:10px; }
