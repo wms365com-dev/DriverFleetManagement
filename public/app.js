@@ -24,6 +24,8 @@ const state = {
   gpsLastUpdate: null,
   gpsAccuracy: null,
   submitLocks: {},
+  addressLookups: {},
+  addressLookupTimers: {},
   locationBuffer: [],
   lastServerSyncAt: null
 };
@@ -196,12 +198,26 @@ function trailers() {
 function addressSuggestions(type = 'both') {
   return state.addresses.filter(item => ['both', type].includes(item.type || 'both'));
 }
+function combinedAddressSuggestions(type = 'both') {
+  const byAddress = new Map();
+  for (const item of addressSuggestions(type)) byAddress.set(String(item.address || '').toLowerCase(), item);
+  for (const item of Object.values(state.addressLookups)) {
+    if (!item?.address) continue;
+    if (item.type && !['both', type].includes(item.type)) continue;
+    const key = String(item.address || '').toLowerCase();
+    if (!byAddress.has(key)) byAddress.set(key, item);
+  }
+  return [...byAddress.values()].slice(0, 20);
+}
 function renderAddressDatalist(id, type) {
-  return `<datalist id="${attr(id)}">${addressSuggestions(type).map(item => `<option value="${attr(item.address)}" label="${attr([item.name, item.type].filter(Boolean).join(' - '))}"></option>`).join('')}</datalist>`;
+  return `<datalist id="${attr(id)}">${combinedAddressSuggestions(type).map(item => renderAddressOption(item)).join('')}</datalist>`;
+}
+function renderAddressOption(item) {
+  return `<option value="${attr(item.address)}" label="${attr([item.name, item.source === 'geoapify' ? 'Geoapify' : item.type].filter(Boolean).join(' - '))}"></option>`;
 }
 function findAddressByValue(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  return state.addresses.find(item => String(item.address || '').trim().toLowerCase() === normalized) || null;
+  return [...state.addresses, ...Object.values(state.addressLookups)].find(item => String(item.address || '').trim().toLowerCase() === normalized) || null;
 }
 function getCurrentCompany() { return byId(state.companies, state.selectedCompanyId) || null; }
 function isSuper() { return state.user?.role === 'super_user'; }
@@ -870,10 +886,10 @@ function renderLoads() {
           <div class="split"><label>Load #<input name="loadNumber" required /></label><label>Reference<input name="referenceNumber" /></label></div>
           <div class="split"><label>Customer<input name="customer" /></label><label>Broker<input name="broker" /></label></div>
           <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
-          <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" /></label>
+          <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" data-address-type="pickup" /></label>
           <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
           <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
-          <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" /></label>
+          <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" data-address-type="delivery" /></label>
           <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
@@ -1387,6 +1403,11 @@ function submitJsonForm(url) {
 
 function bindAddressInputs() {
   document.querySelectorAll('[data-address-input]').forEach(input => {
+    input.oninput = () => {
+      const type = input.dataset.addressType || 'both';
+      clearTimeout(state.addressLookupTimers[input.name]);
+      state.addressLookupTimers[input.name] = setTimeout(() => lookupExternalAddresses(input, type), 350);
+    };
     input.onchange = () => {
       const match = findAddressByValue(input.value);
       if (!match?.name) return;
@@ -1394,6 +1415,23 @@ function bindAddressInputs() {
       if (nameInput && !nameInput.value) nameInput.value = match.name;
     };
   });
+}
+
+async function lookupExternalAddresses(input, type) {
+  const query = String(input.value || '').trim();
+  if (query.length < 3) return;
+  const localMatches = addressSuggestions(type).filter(item => String(item.address || '').toLowerCase().includes(query.toLowerCase()));
+  if (localMatches.length >= 6) return;
+  try {
+    const result = await api(`/api/address-suggestions?q=${encodeURIComponent(query)}&type=${encodeURIComponent(type)}`);
+    for (const suggestion of result.suggestions || []) {
+      state.addressLookups[String(suggestion.address || '').toLowerCase()] = { ...suggestion, type };
+    }
+    const datalist = document.getElementById(input.getAttribute('list'));
+    if (datalist) datalist.innerHTML = combinedAddressSuggestions(type).map(item => renderAddressOption(item)).join('');
+  } catch (error) {
+    console.warn('Address lookup failed', error.message);
+  }
 }
 
 async function loadEverything() {

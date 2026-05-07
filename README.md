@@ -21,6 +21,7 @@ Set these on the web service:
 - `ADMIN_NAME=Grey Wolf` (optional)
 - `SESSION_SECRET=change-me` (reserved for later cookie signing)
 - `UPLOADS_DIR=/data/uploads` if using a Railway volume
+- `GEOAPIFY_API_KEY=your-geoapify-key` to enable external address autocomplete
 
 ## Recommended Railway Setup
 1. Add a **PostgreSQL** service.
@@ -50,3 +51,4 @@ Then open `http://localhost:3000`
 - Drivers can capture images directly from a phone using the file input with `accept="image/*"` and `capture="environment"`.
 - The admin creates driver login accounts from the Drivers screen by checking **Create driver login** and setting a password.
 - Uploaded photos are served from `/uploads/...` and stored at the path set by `UPLOADS_DIR`.
+- Address quick entry uses saved company locations first. If `GEOAPIFY_API_KEY` is set, pickup and delivery fields also search Geoapify after the user types at least 3 characters.

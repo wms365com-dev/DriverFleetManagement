@@ -18,6 +18,7 @@ const storage = multer.diskStorage({
   filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
 });
 const upload = multer({ storage, limits: { fileSize: 8 * 1024 * 1024, files: 8 } });
+const GEOAPIFY_API_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -161,6 +162,20 @@ function locationHistoryPayload(body) {
     accuracy: point.accuracy == null ? null : Number(point.accuracy),
     timestamp: point.timestamp || new Date().toISOString()
   })).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+}
+function mapGeoapifySuggestion(item) {
+  const formatted = item.formatted || [item.housenumber, item.street, item.city, item.state, item.postcode].filter(Boolean).join(', ');
+  return {
+    source: 'geoapify',
+    name: item.name || item.address_line1 || [item.housenumber, item.street].filter(Boolean).join(' '),
+    address: formatted,
+    city: item.city || '',
+    state: item.state || '',
+    postalCode: item.postcode || '',
+    country: item.country || '',
+    lat: item.lat ?? null,
+    lng: item.lon ?? null
+  };
 }
 function canDriverAccessLoad(req, load) {
   return !isDriver(req) || Number(load.driverId) === Number(req.sessionUser.linkedDriverId);
@@ -433,6 +448,28 @@ app.post('/api/addresses', auth, staffOnly, requireCompanyScope, async (req, res
     res.json(address);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to save address' });
+  }
+});
+app.get('/api/address-suggestions', auth, staffOnly, requireCompanyScope, async (req, res) => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (query.length < 3) return res.json({ configured: !!GEOAPIFY_API_KEY, suggestions: [] });
+    if (!GEOAPIFY_API_KEY) return res.json({ configured: false, suggestions: [] });
+    const params = new URLSearchParams({
+      text: query,
+      format: 'json',
+      limit: '6',
+      filter: 'countrycode:us,ca',
+      apiKey: GEOAPIFY_API_KEY
+    });
+    const response = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${params.toString()}`, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'DriverFleetManagement/1.0' }
+    });
+    if (!response.ok) throw new Error('Address lookup service unavailable');
+    const body = await response.json();
+    res.json({ configured: true, suggestions: (body.results || []).map(mapGeoapifySuggestion).filter(item => item.address) });
+  } catch (error) {
+    res.status(502).json({ error: error.message || 'Unable to search addresses' });
   }
 });
 
