@@ -1281,6 +1281,7 @@ function renderLoadCard(load, dispatcher = false) {
     <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
+    ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
     ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>` : ''}
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
     ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
@@ -1679,6 +1680,14 @@ function renderDriverLoadCard(load) {
       <div class="photo-row" id="loadPreview${attr(load.id)}"></div>
       <button class="btn primary small-btn" type="submit">Upload BOL / POD</button>
     </form>
+    <details class="signature-panel">
+      <summary>Capture BOL Signature</summary>
+      <form class="load-signature-form stack compact" data-load-signature="${attr(load.id)}">
+        <label>Signer name<input name="signerName" placeholder="Receiver or carrier name" required /></label>
+        <canvas class="signature-pad" width="420" height="160" data-signature-pad="${attr(load.id)}"></canvas>
+        <div class="load-actions"><button class="btn ghost small-btn clear-signature" type="button" data-clear-signature="${attr(load.id)}">Clear</button><button class="btn primary small-btn" type="submit">Save Signature</button><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print BOL</a></div>
+      </form>
+    </details>
   </article>`;
 }
 
@@ -1851,6 +1860,7 @@ function bindTrackingLinks() {
 
 function bindDriverWorkPage() {
   bindPhotoPreviews();
+  bindSignaturePads();
   document.querySelectorAll('.load-status-btn').forEach(btn => btn.onclick = async () => {
     try {
       await api(`/api/loads/${btn.dataset.loadId}/status`, {
@@ -1876,6 +1886,74 @@ function bindDriverWorkPage() {
       render();
       setToast('Document uploaded', 'success');
     });
+  });
+}
+
+function bindSignaturePads() {
+  document.querySelectorAll('.signature-pad').forEach(canvas => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#f4f7fb';
+    let drawing = false;
+    let signed = false;
+    const point = event => {
+      const rect = canvas.getBoundingClientRect();
+      const touch = event.touches?.[0] || event.changedTouches?.[0];
+      const source = touch || event;
+      return {
+        x: (source.clientX - rect.left) * (canvas.width / rect.width),
+        y: (source.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    };
+    const start = event => {
+      event.preventDefault();
+      drawing = true;
+      signed = true;
+      const p = point(event);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+    };
+    const move = event => {
+      if (!drawing) return;
+      event.preventDefault();
+      const p = point(event);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    };
+    const end = event => {
+      if (!drawing) return;
+      event.preventDefault();
+      drawing = false;
+    };
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('mouseup', end);
+    canvas.addEventListener('mouseleave', end);
+    canvas.addEventListener('touchstart', start, { passive: false });
+    canvas.addEventListener('touchmove', move, { passive: false });
+    canvas.addEventListener('touchend', end, { passive: false });
+    const clearBtn = document.querySelector(`[data-clear-signature="${CSS.escape(canvas.dataset.signaturePad)}"]`);
+    if (clearBtn) clearBtn.onclick = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); signed = false; };
+    const form = canvas.closest('.load-signature-form');
+    if (form) form.onsubmit = async event => {
+      event.preventDefault();
+      if (!signed) return setToast('Please draw a signature first', 'error');
+      const btn = event.submitter || form.querySelector('button[type="submit"]');
+      await guardedSubmit(`signature${form.dataset.loadSignature}`, btn, 'Saving...', async () => {
+        const body = Object.fromEntries(new FormData(form));
+        body.signatureDataUrl = canvas.toDataURL('image/png');
+        await api(`/api/loads/${form.dataset.loadSignature}/signature`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        await loadEverything();
+        render();
+        setToast('Signature saved', 'success');
+      });
+    };
   });
 }
 

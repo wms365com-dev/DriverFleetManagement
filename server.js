@@ -222,6 +222,123 @@ function publicLoadPayload(load) {
       }))
   };
 }
+function escHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+function bolDate(value) {
+  return value ? new Date(value).toLocaleString() : '';
+}
+function loadDocumentSignatures(load) {
+  return (load.documents || []).filter(doc => String(doc.type || '').toLowerCase() === 'signature');
+}
+function renderBolHtml(load, company, driver, vehicle, trailer) {
+  const signatures = loadDocumentSignatures(load);
+  const latestSignature = signatures[signatures.length - 1] || null;
+  const freightTerms = load.rate ? 'Prepaid' : 'Collect / 3rd Party';
+  const totalPieces = load.pieces || '';
+  const totalWeight = load.weight ? `${Number(load.weight).toLocaleString()} lb` : '';
+  const handlingUnit = trailer ? `${trailer.unitNumber} / ${trailer.type || 'Trailer'}` : vehicle?.unitNumber || '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VICS BOL ${escHtml(load.loadNumber)} | Dispatcher365</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111;background:#f4f6f8}
+    .bol-page{width:8.5in;min-height:11in;margin:24px auto;padding:.35in;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+    h1{font-size:20px;margin:0;text-align:center;letter-spacing:.04em}
+    .top{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;margin-bottom:8px}
+    .brand{font-size:12px;color:#444}.bol-number{text-align:right;font-size:12px}.bol-number strong{display:block;font-size:18px;color:#000}
+    .box{border:1px solid #111;margin-top:8px}.box h2{margin:0;padding:5px 7px;font-size:11px;background:#e8edf3;border-bottom:1px solid #111;text-transform:uppercase;letter-spacing:.03em}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr}.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr}
+    .cell{padding:7px;min-height:54px;border-right:1px solid #111}.cell:last-child{border-right:0}
+    .label{display:block;font-size:9px;text-transform:uppercase;color:#555;margin-bottom:4px}.value{font-size:12px;white-space:pre-wrap}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #111;padding:5px;font-size:11px;text-align:left;vertical-align:top}th{background:#e8edf3;text-transform:uppercase;font-size:9px}
+    .legal{font-size:9px;line-height:1.35;color:#222;padding:7px}
+    .signature-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sig-box{border:1px solid #111;min-height:86px;padding:7px}.sig-box img{max-height:42px;max-width:260px}
+    .muted{color:#555}.print-actions{width:8.5in;margin:20px auto 0;text-align:right}.print-actions button{padding:10px 14px;border:0;border-radius:6px;background:#2f7dd1;color:#fff;font-weight:700}
+    @media print{body{background:#fff}.bol-page{margin:0;box-shadow:none}.print-actions{display:none}}
+  </style>
+</head>
+<body>
+  <div class="print-actions"><button onclick="window.print()">Print / Save PDF</button></div>
+  <main class="bol-page">
+    <div class="top">
+      <div class="brand"><strong>Dispatcher365</strong><br>${escHtml(company?.name || 'Company')} ${company?.code ? `(${escHtml(company.code)})` : ''}</div>
+      <div class="bol-number"><span>Bill of Lading Number</span><strong>${escHtml(load.loadNumber)}</strong><span>${escHtml(load.publicTrackingToken || '')}</span></div>
+    </div>
+    <h1>VICS / GS1 US Bill of Lading</h1>
+    <section class="box">
+      <h2>Ship From / Ship To</h2>
+      <div class="grid-2">
+        <div class="cell"><span class="label">Ship From</span><div class="value">${escHtml(load.pickupName || company?.name || '')}
+${escHtml(load.pickupAddress || '')}
+${escHtml(load.pickupContactName || '')} ${escHtml(load.pickupPhone || '')}</div></div>
+        <div class="cell"><span class="label">Ship To</span><div class="value">${escHtml(load.deliveryName || load.customer || '')}
+${escHtml(load.deliveryAddress || '')}
+${escHtml(load.deliveryContactName || '')} ${escHtml(load.deliveryPhone || '')}</div></div>
+      </div>
+    </section>
+    <section class="box">
+      <h2>Bill To / Carrier</h2>
+      <div class="grid-3">
+        <div class="cell"><span class="label">Bill Freight To</span><div class="value">${escHtml(load.broker || load.customer || company?.name || '')}</div></div>
+        <div class="cell"><span class="label">Carrier Name / Driver</span><div class="value">${escHtml(company?.name || '')}
+${escHtml(driver ? `${driver.firstName || ''} ${driver.lastName || ''}`.trim() : '')}</div></div>
+        <div class="cell"><span class="label">Trailer / Seal / Pickup Date</span><div class="value">${escHtml(handlingUnit)}
+${escHtml(load.referenceNumber || '')}
+${escHtml(bolDate(load.pickupAppointment))}</div></div>
+      </div>
+    </section>
+    <section class="box">
+      <h2>Special Instructions</h2>
+      <div class="legal">${escHtml([load.pickupHours ? `Pickup hours: ${load.pickupHours}` : '', load.pickupDockType ? `Pickup dock: ${load.pickupDockType}` : '', load.pickupSiteNotes || '', load.deliveryHours ? `Delivery hours: ${load.deliveryHours}` : '', load.deliveryDockType ? `Delivery dock: ${load.deliveryDockType}` : '', load.deliverySiteNotes || '', load.notes || ''].filter(Boolean).join('\n'))}</div>
+    </section>
+    <section class="box">
+      <h2>Customer Order Information</h2>
+      <table>
+        <thead><tr><th>Customer Order #</th><th>PKGS</th><th>Weight</th><th>Pallet / Slip</th><th>Additional Shipper Info</th></tr></thead>
+        <tbody>
+          <tr><td>${escHtml(load.referenceNumber || load.loadNumber)}</td><td>${escHtml(totalPieces)}</td><td>${escHtml(totalWeight)}</td><td>${escHtml(trailer ? 'Y' : '')}</td><td>${escHtml(load.customer || '')}</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="box">
+      <h2>Carrier Information</h2>
+      <table>
+        <thead><tr><th>Handling Unit Qty</th><th>Package Qty</th><th>Commodity Description</th><th>NMFC #</th><th>Class</th><th>Weight</th><th>Hazmat</th></tr></thead>
+        <tbody>
+          <tr><td>${escHtml(totalPieces)}</td><td>${escHtml(totalPieces)}</td><td>${escHtml(load.commodity || 'Freight of all kinds')}</td><td></td><td></td><td>${escHtml(totalWeight)}</td><td></td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section class="box">
+      <h2>COD Amount / Freight Charge Terms</h2>
+      <div class="grid-3">
+        <div class="cell"><span class="label">COD Amount</span><div class="value"></div></div>
+        <div class="cell"><span class="label">Fee Terms</span><div class="value">${escHtml(freightTerms)}</div></div>
+        <div class="cell"><span class="label">Load Status</span><div class="value">${escHtml(load.status || 'new')}</div></div>
+      </div>
+    </section>
+    <section class="box">
+      <h2>Liability / Receipt</h2>
+      <div class="legal">Carrier acknowledges receipt of packages and required placards, if any, from the shipper listed above in apparent good order except as noted. This printable BOL is generated from Dispatcher365 load data and should be reviewed by the shipper/carrier for completeness before use.</div>
+    </section>
+    <section class="signature-row" style="margin-top:8px">
+      <div class="sig-box"><span class="label">Shipper Signature / Date</span><div class="value"></div></div>
+      <div class="sig-box"><span class="label">Carrier Signature / Pickup Date</span>${latestSignature?.dataUrl ? `<img src="${escHtml(latestSignature.dataUrl)}" alt="Digital signature" />` : '<div class="value muted">No digital signature captured.</div>'}<div class="value">${escHtml(latestSignature?.signerName || '')} ${latestSignature?.signedAt ? `- ${escHtml(bolDate(latestSignature.signedAt))}` : ''}</div></div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
 function addressPayload(body) {
   const type = String(body.type || 'both');
   return {
@@ -679,6 +796,47 @@ app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverPro
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to upload document' });
+  }
+});
+app.post('/api/loads/:id/signature', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  try {
+    const loads = await db.getLoads(req.companyId);
+    const load = loads.find(l => Number(l.id) === Number(req.params.id));
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!canDriverAccessLoad(req, load)) return res.status(403).json({ error: 'Drivers can only sign assigned loads' });
+    const dataUrl = String(req.body.signatureDataUrl || '');
+    if (!dataUrl.startsWith('data:image/png;base64,')) return res.status(400).json({ error: 'Signature is required' });
+    const updated = await db.addLoadDocument(req.companyId, load.id, {
+      type: 'signature',
+      note: req.body.note || 'Digital BOL signature',
+      signerName: String(req.body.signerName || '').trim(),
+      signerRole: req.sessionUser.role,
+      dataUrl,
+      signedAt: new Date().toISOString()
+    }, req.sessionUser);
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to save signature' });
+  }
+});
+app.get('/bol/:id', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  try {
+    const [loads, companies, drivers, vehicles] = await Promise.all([
+      db.getLoads(req.companyId),
+      db.getCompanies(),
+      db.getDrivers(req.companyId),
+      db.getVehicles(req.companyId)
+    ]);
+    const load = loads.find(l => Number(l.id) === Number(req.params.id));
+    if (!load) return res.status(404).send('Load not found');
+    if (!canDriverAccessLoad(req, load)) return res.status(403).send('Drivers can only view BOLs for assigned loads');
+    const company = companies.find(c => Number(c.id) === Number(req.companyId));
+    const driver = drivers.find(d => Number(d.id) === Number(load.driverId));
+    const vehicle = vehicles.find(v => Number(v.id) === Number(load.vehicleId));
+    const trailer = vehicles.find(v => Number(v.id) === Number(load.trailerId));
+    res.type('html').send(renderBolHtml(load, company, driver, vehicle, trailer));
+  } catch (error) {
+    res.status(400).send(error.message || 'Unable to generate BOL');
   }
 });
 
