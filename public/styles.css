@@ -1006,6 +1006,9 @@ td {
 .tracking-brand { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:18px 22px; border-bottom:1px solid rgba(169,184,205,.14); }
 .tracking-brand a { color:#dbe5f1; text-decoration:none; font-weight:800; }
 .tracking-brand-link { display:flex; align-items:center; gap:10px; }
+.tracking-brand-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
+.tracking-brand-actions a { min-height:40px; display:inline-flex; align-items:center; justify-content:center; padding:9px 12px; border-radius:8px; }
+.tracking-home-link { border:1px solid rgba(169,184,205,.2); background:rgba(169,184,205,.08); }
 .tracking-brand span { width:42px; height:42px; display:grid; place-items:center; border-radius:10px; background:#2f7dd1; color:#fff; font-weight:900; }
 .tracking-content { display:grid; gap:18px; padding:24px; }
 .tracking-lookup { display:grid; gap:16px; max-width:720px; }
@@ -1042,6 +1045,8 @@ td {
   .tracking-hero, .tracking-grid, .tracking-details, .tracking-progress, .tracking-lookup-form { grid-template-columns:1fr; display:grid; }
   .tracking-timeline div { grid-template-columns:16px 1fr; }
   .tracking-timeline small { grid-column:2; }
+  .tracking-brand { align-items:flex-start; }
+  .tracking-brand-actions { flex-wrap:wrap; }
 }
 
 /* Unified Dispatcher365 theme and icon system */
@@ -1230,6 +1235,19 @@ textarea {
 .marketing-nav,
 .tracking-brand {
   border-color: var(--line);
+}
+.tracking-brand-actions a {
+  border-radius: var(--radius);
+}
+.tracking-home-link {
+  border: 1px solid var(--line);
+  background: rgba(169, 184, 205, .08);
+}
+.tracking-home-link:hover,
+.tracking-brand-actions a:hover {
+  color: #fff;
+  border-color: rgba(90, 166, 232, .36);
+  background: rgba(90, 166, 232, .12);
 }
 .marketing-body,
 .tracking-body,
