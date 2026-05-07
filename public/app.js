@@ -95,6 +95,29 @@ const dockTypeOptions = [
   ['forklift', 'Forklift On Site'],
   ['unknown', 'Confirm With Site']
 ];
+const viewIcons = {
+  platformHome: 'grid',
+  adminHome: 'grid',
+  dispatchHome: 'grid',
+  loads: 'clipboard',
+  locations: 'pin',
+  customerTracking: 'route',
+  map: 'map',
+  drivers: 'user',
+  vehicles: 'truck',
+  assignments: 'link',
+  inspections: 'check',
+  issues: 'alert',
+  maintenance: 'tool',
+  documents: 'file',
+  reports: 'chart',
+  users: 'users',
+  companies: 'building',
+  settings: 'gear',
+  bugReports: 'bug',
+  driver: 'user',
+  driverWork: 'clipboard'
+};
 const staffOperationsNav = [
   ['dispatchHome', 'Dashboard'],
   ['loads', 'Dispatch / Loads'],
@@ -192,6 +215,31 @@ function esc(value) {
 }
 function attr(value) {
   return esc(value);
+}
+function appIcon(name = 'circle') {
+  const paths = {
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect>',
+    clipboard: '<path d="M9 4h6l1 2h3v15H5V6h3l1-2z"></path><path d="M9 11h6"></path><path d="M9 15h4"></path>',
+    pin: '<path d="M12 21s7-5.2 7-11a7 7 0 0 0-14 0c0 5.8 7 11 7 11z"></path><circle cx="12" cy="10" r="2"></circle>',
+    route: '<circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="6" r="2"></circle><path d="M8 18h3a3 3 0 0 0 0-6h2a3 3 0 0 0 3-3V8"></path>',
+    map: '<path d="M4 6l5-2 6 2 5-2v14l-5 2-6-2-5 2V6z"></path><path d="M9 4v14"></path><path d="M15 6v14"></path>',
+    user: '<circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>',
+    truck: '<path d="M3 7h11v8H3z"></path><path d="M14 10h4l3 3v2h-7z"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle>',
+    check: '<path d="M20 6L9 17l-5-5"></path>',
+    alert: '<path d="M12 3l10 18H2L12 3z"></path><path d="M12 9v5"></path><path d="M12 17h.01"></path>',
+    tool: '<path d="M14 7a5 5 0 0 0 6 6l-7 7-5-5 7-7z"></path><path d="M4 20l6-6"></path>',
+    file: '<path d="M6 3h8l5 5v13H6z"></path><path d="M14 3v5h5"></path>',
+    chart: '<path d="M4 20V4"></path><path d="M4 20h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-9"></path>',
+    gear: '<circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"></path>',
+    bug: '<path d="M8 8h8v9a4 4 0 0 1-8 0V8z"></path><path d="M9 4l2 3"></path><path d="M15 4l-2 3"></path><path d="M4 13h4"></path><path d="M16 13h4"></path>',
+    building: '<path d="M4 21V5l8-3 8 3v16"></path><path d="M9 21v-6h6v6"></path><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M16 12h.01"></path>',
+    users: '<circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9" r="2.5"></circle><path d="M3 21a6 6 0 0 1 12 0"></path><path d="M14 18a5 5 0 0 1 7 3"></path>',
+    link: '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"></path>'
+  };
+  return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || '<circle cx="12" cy="12" r="8"></circle>'}</svg>`;
+}
+function navLabel(view, label) {
+  return `${appIcon(viewIcons[view] || 'circle')}<span>${esc(label)}</span>`;
 }
 function statusTag(value) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9_ -]/g, '').replace(/\s+/g, '_');
@@ -491,7 +539,7 @@ function renderLogin() {
   return `
   <div class="login-page">
     <div class="login-card glass">
-      <div class="brand-mark">DF</div>
+      <div class="brand-mark">D365</div>
       <div>
         <p class="eyebrow">Secure fleet portal</p>
         <h1>Driver Fleet Management</h1>
@@ -521,7 +569,7 @@ function renderMobileShell() {
       </header>
       <main id="viewContainer" class="mobile-app-main"></main>
       <nav class="mobile-tabbar">
-        ${getNavItems().map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${esc(label)}</button>`).join('')}
+        ${getNavItems().map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${navLabel(view, label)}</button>`).join('')}
       </nav>
     </div>`;
 }
@@ -580,7 +628,7 @@ function renderShell() {
     <aside class="sidebar glass">
       <div>
         <div class="brand-row">
-          <div class="brand-mark small">DF</div>
+          <div class="brand-mark small">D365</div>
           <div>
             <h2>${workspaceName()}</h2>
             <p>${esc(state.user.firstName || state.user.email)}</p>
@@ -600,7 +648,7 @@ function renderShell() {
           </div>` : ''}
       </div>
       <nav>
-        ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${label}</button>`).join('')}
+        ${navItems.map(([view, label]) => `<button class="nav-btn ${activeView === view ? 'active' : ''}" data-view="${view}">${navLabel(view, label)}</button>`).join('')}
       </nav>
       <div class="stack compact">
         <div class="tiny">Version 6 &middot; Role-separated workspaces</div>
