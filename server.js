@@ -26,6 +26,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
+app.get(['/portal', '/login', '/app'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 
 function parseCookies(req) {
   const header = req.headers.cookie || '';

@@ -3,13 +3,120 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Driver Fleet Management</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <title>Dispatcher365 | Fleet Dispatch, Driver Check-Ins, Inspections</title>
+  <meta name="description" content="Dispatcher365 helps fleets dispatch loads, track driver progress, collect inspections, upload BOL/POD photos, and manage equipment from one secure portal." />
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body>
-  <div id="app"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="/app.js"></script>
+<body class="marketing-body">
+  <header class="marketing-nav">
+    <a class="marketing-brand" href="/">
+      <span>D365</span>
+      <strong>Dispatcher365</strong>
+    </a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#roles">Roles</a>
+      <a class="marketing-login" href="/portal">Log In</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="marketing-hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Fleet operations command center</p>
+        <h1>Dispatch loads, monitor drivers, and collect proof from one modern system.</h1>
+        <p class="hero-lede">Dispatcher365 gives dispatch teams a clean workspace for load entry, driver tracking, vehicle inspections, BOL/POD uploads, saved locations, and equipment assignments.</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="/portal">Log In To Portal</a>
+          <a class="btn ghost" href="#workflow">See Workflow</a>
+        </div>
+        <div class="trust-row">
+          <span>Driver mobile pages</span>
+          <span>Dispatcher load board</span>
+          <span>Admin controls</span>
+        </div>
+      </div>
+      <div class="product-preview" aria-label="Dispatcher365 product preview">
+        <div class="preview-top">
+          <span></span><span></span><span></span>
+          <strong>Live Dispatch</strong>
+        </div>
+        <div class="preview-grid">
+          <aside>
+            <b>Load 1842</b>
+            <small>Pickup confirmed</small>
+            <b>Load 1843</b>
+            <small>Driver en route</small>
+            <b>Load 1844</b>
+            <small>Awaiting BOL</small>
+          </aside>
+          <section>
+            <div class="preview-map">
+              <i style="left:28%;top:34%">ML</i>
+              <i style="left:62%;top:48%">PK</i>
+              <i style="left:74%;top:24%">AJ</i>
+            </div>
+            <div class="preview-cards">
+              <article><span>Active Loads</span><strong>18</strong></article>
+              <article><span>Open Defects</span><strong>3</strong></article>
+              <article><span>Docs Today</span><strong>11</strong></article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="marketing-section">
+      <div class="section-heading">
+        <p class="eyebrow">Built for daily operations</p>
+        <h2>Everything dispatch needs before, during, and after a load.</h2>
+      </div>
+      <div class="marketing-card-grid">
+        <article><strong>Load Dispatch</strong><p>Create loads with pickup, delivery, driver, equipment, site contacts, hours, dock notes, and saved locations.</p></article>
+        <article><strong>Driver Progress</strong><p>Drivers confirm pickup, in-transit status, delivery, exceptions, and upload BOL/POD photos from mobile.</p></article>
+        <article><strong>Live Map</strong><p>Dispatchers monitor driver locations, latest GPS update, assigned load, and route trail when permission is granted.</p></article>
+        <article><strong>Inspections</strong><p>Drivers complete vehicle inspections and submit defect photos so repairs and out-of-service decisions are visible.</p></article>
+        <article><strong>Equipment</strong><p>Manage tractors, day cabs, sleeper cabs, straight trucks, vans, trailers, chassis, tankers, flatbeds, reefers, and more.</p></article>
+        <article><strong>Company Data</strong><p>Save customers and locations for faster load entry, with company-scoped address autocomplete and site instructions.</p></article>
+      </div>
+    </section>
+
+    <section id="workflow" class="workflow-band">
+      <div class="section-heading">
+        <p class="eyebrow">Simple load lifecycle</p>
+        <h2>From dispatch to delivery confirmation.</h2>
+      </div>
+      <div class="workflow-steps">
+        <article><span>01</span><strong>Enter Load</strong><p>Select saved customer locations, assign driver and equipment, add dock/tailgate details.</p></article>
+        <article><span>02</span><strong>Track Progress</strong><p>Driver checks in at each stage while dispatch monitors status and GPS updates.</p></article>
+        <article><span>03</span><strong>Collect Proof</strong><p>Driver uploads BOL/POD photos, notes exceptions, and closes out delivery.</p></article>
+        <article><span>04</span><strong>Report</strong><p>Admins review loads, documents, defects, inspections, and operational history.</p></article>
+      </div>
+    </section>
+
+    <section id="roles" class="marketing-section roles-section">
+      <div class="section-heading">
+        <p class="eyebrow">Separate workspaces</p>
+        <h2>Each user lands in the right experience after login.</h2>
+      </div>
+      <div class="role-panels">
+        <article><strong>Drivers</strong><p>Mobile check-in, assigned work, inspections, defect reports, GPS permission, and BOL/POD upload.</p></article>
+        <article><strong>Dispatchers</strong><p>Load board, saved customer locations, live map, documents, driver monitoring, and exception handling.</p></article>
+        <article><strong>Admins</strong><p>User access, equipment, assignments, reports, defects, settings, and bug reports.</p></article>
+      </div>
+    </section>
+
+    <section class="marketing-cta">
+      <p class="eyebrow">Ready for dispatch</p>
+      <h2>Existing users can enter the secure portal now.</h2>
+      <a class="btn primary" href="/portal">Go To Login</a>
+    </section>
+  </main>
+
+  <footer class="marketing-footer">
+    <strong>Dispatcher365</strong>
+    <span>Fleet dispatch, inspections, tracking, and proof of delivery.</span>
+  </footer>
 </body>
 </html>
