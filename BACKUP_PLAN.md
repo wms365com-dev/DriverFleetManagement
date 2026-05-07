@@ -4,7 +4,7 @@ Customers trust the system with shipment records, driver activity, inspections, 
 
 ## What Must Be Backed Up
 
-- PostgreSQL tables: companies, users, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, and bug reports.
+- PostgreSQL tables: companies, users, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bug reports, and notifications.
 - Uploaded files: BOL, POD, inspection photos, signature images, proof photos, and issue attachments from `UPLOADS_DIR`.
 - Environment configuration: Railway variables, domain settings, Geoapify key, and any future SMS/email provider keys. Store these in a password manager, not in Git.
 

@@ -51,6 +51,7 @@ const seed = {
   loads: [],
   addresses: [],
   bugReports: [],
+  notifications: [],
   issues: [
     { id: 1, companyId: 1, shiftId: null, inspectionId: null, driverId: 2, vehicleId: 2, category: 'lights', severity: 'medium', description: 'Right marker light intermittent.', status: 'open', resolutionNotes: '', createdAt: new Date().toISOString(), closedAt: null, photos: [] }
   ]
@@ -149,6 +150,10 @@ function normalizeFileDb() {
   for (const report of db.bugReports) {
     if (!report.companyId) { report.companyId = seedCompany.id; changed = true; }
     if (!Array.isArray(report.photos)) { report.photos = []; changed = true; }
+  }
+  for (const notification of db.notifications) {
+    if (!Object.prototype.hasOwnProperty.call(notification, 'readAt')) { notification.readAt = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(notification, 'metadata')) { notification.metadata = {}; changed = true; }
   }
   if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
@@ -311,6 +316,22 @@ function mapBugReport(r) {
     closedAt: r.closed_at || r.closedAt || null
   };
 }
+function mapNotification(r) {
+  return {
+    id: r.id,
+    companyId: r.company_id ?? r.companyId ?? null,
+    userId: r.user_id ?? r.userId ?? null,
+    audience: r.audience || 'staff',
+    type: r.type || 'info',
+    severity: r.severity || 'info',
+    title: r.title || '',
+    message: r.message || '',
+    link: r.link || '',
+    metadata: r.metadata || {},
+    createdAt: r.created_at || r.createdAt,
+    readAt: r.read_at || r.readAt || null
+  };
+}
 
 function safeUser(user) {
   if (!user) return null;
@@ -354,7 +375,7 @@ async function ensureSuperUser() {
 
 async function syncPostgresSerialSequences() {
   if (!usePostgres) return;
-  const tables = ['companies', 'users', 'drivers', 'vehicles', 'assignments', 'shifts', 'inspections', 'issues', 'loads', 'addresses', 'bug_reports'];
+  const tables = ['companies', 'users', 'drivers', 'vehicles', 'assignments', 'shifts', 'inspections', 'issues', 'loads', 'addresses', 'bug_reports', 'notifications'];
   for (const table of tables) {
     await pool.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`);
   }
@@ -539,6 +560,20 @@ async function initPostgres() {
     photos JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMPTZ
+  );
+  CREATE TABLE IF NOT EXISTS notifications (
+    id SERIAL PRIMARY KEY,
+    company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    audience TEXT NOT NULL DEFAULT 'staff',
+    type TEXT NOT NULL DEFAULT 'info',
+    severity TEXT NOT NULL DEFAULT 'info',
+    title TEXT NOT NULL,
+    message TEXT,
+    link TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    read_at TIMESTAMPTZ
   );`;
   await pool.query(schema);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
@@ -569,6 +604,7 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS liftgate BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hazmat_capable BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS customer TEXT`);
+  await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS contact_name TEXT`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS phone TEXT`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS email TEXT`);
@@ -982,6 +1018,51 @@ const fileDb = {
     writeFileDb(db);
     return mapBugReport(report);
   },
+  async getNotifications(companyId, user) {
+    const role = user?.role || 'staff';
+    return readFileDb().notifications
+      .filter(item => {
+        if (item.companyId && companyId && Number(item.companyId) !== Number(companyId)) return false;
+        if (item.companyId && !companyId && role !== 'super_user') return false;
+        if (item.userId && Number(item.userId) !== Number(user?.id)) return false;
+        if (role === 'super_user') return true;
+        if (role === 'driver') return ['driver', 'all'].includes(item.audience);
+        if (role === 'admin') return ['admin', 'staff', 'dispatcher', 'all'].includes(item.audience);
+        return ['staff', 'dispatcher', 'all'].includes(item.audience);
+      })
+      .map(mapNotification)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+      .slice(0, 100);
+  },
+  async createNotification(companyId, payload) {
+    const db = readFileDb();
+    const notification = {
+      id: nextId(db.notifications),
+      companyId: companyId || null,
+      userId: payload.userId || null,
+      audience: payload.audience || 'staff',
+      type: payload.type || 'info',
+      severity: payload.severity || 'info',
+      title: payload.title,
+      message: payload.message || '',
+      link: payload.link || '',
+      metadata: payload.metadata || {},
+      createdAt: new Date().toISOString(),
+      readAt: null
+    };
+    db.notifications.push(notification);
+    writeFileDb(db);
+    return mapNotification(notification);
+  },
+  async markNotificationRead(companyId, id, user) {
+    const db = readFileDb();
+    const notification = db.notifications.find(item => Number(item.id) === Number(id) && (!item.companyId || !companyId || Number(item.companyId) === Number(companyId)));
+    if (!notification) throw new Error('Notification not found.');
+    if (notification.userId && Number(notification.userId) !== Number(user?.id)) throw new Error('Notification not found.');
+    notification.readAt = new Date().toISOString();
+    writeFileDb(db);
+    return mapNotification(notification);
+  },
   ...commonMethods
 };
 
@@ -1185,6 +1266,46 @@ const pgDb = {
     const r = await pool.query(`UPDATE bug_reports SET status=$3,resolution_notes=COALESCE($4,resolution_notes),closed_at=CASE WHEN $3='closed' THEN NOW() ELSE closed_at END WHERE id=$2 AND ($1::int IS NULL OR company_id=$1) RETURNING *`, [companyId || null, id, status, resolutionNotes || null]);
     if (!r.rows[0]) throw new Error('Bug report not found.');
     return mapBugReport(r.rows[0]);
+  },
+  async getNotifications(companyId, user) {
+    const role = user?.role || 'staff';
+    const audiences = role === 'super_user'
+      ? ['super_user', 'admin', 'staff', 'dispatcher', 'driver', 'all']
+      : role === 'driver'
+        ? ['driver', 'all']
+        : role === 'admin'
+          ? ['admin', 'staff', 'dispatcher', 'all']
+          : ['staff', 'dispatcher', 'all'];
+    const r = await pool.query(
+      `SELECT * FROM notifications
+       WHERE ($1::int IS NULL OR company_id IS NULL OR company_id=$1)
+         AND (user_id IS NULL OR user_id=$2)
+         AND audience = ANY($3::text[])
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [companyId || null, user?.id || null, audiences]
+    );
+    return r.rows.map(mapNotification);
+  },
+  async createNotification(companyId, payload) {
+    const r = await pool.query(
+      `INSERT INTO notifications (company_id,user_id,audience,type,severity,title,message,link,metadata,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW()) RETURNING *`,
+      [companyId || null, payload.userId || null, payload.audience || 'staff', payload.type || 'info', payload.severity || 'info', payload.title, payload.message || '', payload.link || '', JSON.stringify(payload.metadata || {})]
+    );
+    return mapNotification(r.rows[0]);
+  },
+  async markNotificationRead(companyId, id, user) {
+    const r = await pool.query(
+      `UPDATE notifications SET read_at=NOW()
+       WHERE id=$1
+         AND ($2::int IS NULL OR company_id IS NULL OR company_id=$2)
+         AND (user_id IS NULL OR user_id=$3)
+       RETURNING *`,
+      [id, companyId || null, user?.id || null]
+    );
+    if (!r.rows[0]) throw new Error('Notification not found.');
+    return mapNotification(r.rows[0]);
   },
   ...commonMethods
 };

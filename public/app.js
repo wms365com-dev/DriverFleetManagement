@@ -12,6 +12,7 @@ const state = {
   loads: [],
   addresses: [],
   bugReports: [],
+  notifications: [],
   selectedCompanyId: null,
   selectedDriverId: null,
   activeView: null,
@@ -189,6 +190,7 @@ const viewIcons = {
   companies: 'building',
   settings: 'gear',
   bugReports: 'bug',
+  notifications: 'bell',
   driver: 'user',
   driverWork: 'clipboard'
 };
@@ -206,6 +208,7 @@ const staffOperationsNav = [
   ['documents', 'Documents'],
   ['reports', 'Reports'],
   ['settings', 'Settings'],
+  ['notifications', 'Notifications'],
   ['bugReports', 'Bug Reports']
 ];
 
@@ -306,6 +309,7 @@ function appIcon(name = 'circle') {
     chart: '<path d="M4 20V4"></path><path d="M4 20h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-9"></path>',
     gear: '<circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"></path>',
     bug: '<path d="M8 8h8v9a4 4 0 0 1-8 0V8z"></path><path d="M9 4l2 3"></path><path d="M15 4l-2 3"></path><path d="M4 13h4"></path><path d="M16 13h4"></path>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path>',
     building: '<path d="M4 21V5l8-3 8 3v16"></path><path d="M9 21v-6h6v6"></path><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M16 12h.01"></path>',
     users: '<circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9" r="2.5"></circle><path d="M3 21a6 6 0 0 1 12 0"></path><path d="M14 18a5 5 0 0 1 7 3"></path>',
     link: '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"></path>'
@@ -313,7 +317,8 @@ function appIcon(name = 'circle') {
   return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || '<circle cx="12" cy="12" r="8"></circle>'}</svg>`;
 }
 function navLabel(view, label) {
-  return `${appIcon(viewIcons[view] || 'circle')}<span>${esc(label)}</span>`;
+  const unread = view === 'notifications' ? state.notifications.filter(item => !item.readAt).length : 0;
+  return `${appIcon(viewIcons[view] || 'circle')}<span>${esc(label)}</span>${unread ? `<b class="nav-badge">${unread}</b>` : ''}`;
 }
 function statusTag(value) {
   const slug = String(value || '').toLowerCase().replace(/[^a-z0-9_ -]/g, '').replace(/\s+/g, '_');
@@ -727,7 +732,7 @@ function renderMobileShell() {
 
 function getNavItems() {
   if (state.user?.role === 'driver') {
-    return [['driver', 'Check-In'], ['driverWork', 'Assigned Work'], ['bugReports', 'Report Bug']];
+    return [['driver', 'Check-In'], ['driverWork', 'Assigned Work'], ['notifications', 'Notifications'], ['bugReports', 'Report Bug']];
   }
   if (state.user?.role === 'support_staff') {
     return staffOperationsNav.filter(([view]) => !['settings'].includes(view));
@@ -749,6 +754,7 @@ function getNavItems() {
       ['reports', 'Reports'],
       ['users', 'Users'],
       ['settings', 'Settings'],
+      ['notifications', 'Notifications'],
       ['bugReports', 'Bug Reports']
     ];
   }
@@ -758,6 +764,7 @@ function getNavItems() {
     ['users', 'Company Users'],
     ['reports', 'Reports'],
     ['settings', 'Settings'],
+    ['notifications', 'Notifications'],
     ['bugReports', 'Bug Reports']
   ];
 }
@@ -845,6 +852,7 @@ function getViewTitle(view) {
     documents: 'Documents',
     reports: 'Reports',
     settings: 'Settings',
+    notifications: 'Notifications',
     bugReports: 'Bug Reports',
     driverWork: 'Assigned Work',
     driver: state.user?.role === 'driver' ? 'My Driver Workspace' : 'Driver Mobile Preview'
@@ -896,6 +904,7 @@ function renderView(view) {
   if (view === 'documents') return renderDocuments();
   if (view === 'reports') return renderReports();
   if (view === 'settings') return renderSettings();
+  if (view === 'notifications') return renderNotifications();
   if (view === 'bugReports') return renderBugReports();
   if (view === 'driverWork') return renderDriverWorkPage();
   return renderDriverWorkspace();
@@ -1826,6 +1835,43 @@ function renderBugReports() {
     </div>`;
 }
 
+function renderNotifications() {
+  const unread = state.notifications.filter(item => !item.readAt);
+  const recent = [...state.notifications].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  return `<div class="two-col">
+    <section class="panel glass">
+      <div class="panel-head"><h3>Notifications</h3><p>${unread.length} unread alert${unread.length === 1 ? '' : 's'}</p></div>
+      <div class="metric-grid">
+        <div class="metric-card glass"><span>Unread</span><strong>${unread.length}</strong></div>
+        <div class="metric-card glass"><span>Total</span><strong>${state.notifications.length}</strong></div>
+      </div>
+      <div class="issue-list">
+        ${recent.map(item => `
+          <article class="list-card ${item.readAt ? '' : 'highlight'}">
+            <div class="card-row">
+              <div><strong>${esc(item.title)}</strong><p class="tiny">${esc(item.message || '')}</p></div>
+              ${statusTag(item.severity || item.type || 'info')}
+            </div>
+            <p class="tiny">${fmt(item.createdAt)}${item.readAt ? ` &middot; Read ${fmt(item.readAt)}` : ''}</p>
+            <div class="action-row">
+              ${item.link ? `<button class="btn ghost small-btn notification-link" data-link="${attr(item.link)}">${appIcon('link')}Open</button>` : ''}
+              ${!item.readAt ? `<button class="btn primary small-btn mark-notification-read" data-id="${attr(item.id)}">Mark Read</button>` : ''}
+            </div>
+          </article>`).join('') || emptyState('No notifications yet', 'Load updates, new signups, documents, and bug reports will appear here.')}
+      </div>
+    </section>
+    <section class="panel glass">
+      <div class="panel-head"><h3>Alert Rules</h3><p>Operational events captured automatically</p></div>
+      <div class="list-grid">
+        <article class="list-card"><strong>Company Signups</strong><p class="tiny">Super admins are alerted when a company needs approval.</p></article>
+        <article class="list-card"><strong>Load Assignments</strong><p class="tiny">Drivers and dispatch see new assigned work.</p></article>
+        <article class="list-card"><strong>Status Updates</strong><p class="tiny">Pickup, delivery, POD, and close events create alerts.</p></article>
+        <article class="list-card"><strong>Documents & Bugs</strong><p class="tiny">Uploaded POD/BOL files and bug reports notify staff.</p></article>
+      </div>
+    </section>
+  </div>`;
+}
+
 function renderDriverWorkspace() {
   const driverId = state.user.role === 'driver'
     ? state.user.linkedDriverId
@@ -2059,6 +2105,25 @@ function bindView(view) {
         setToast('Bug report closed', 'success');
       } catch (error) {
         setToast(error.message, 'error');
+      }
+    });
+  }
+  if (view === 'notifications') {
+    document.querySelectorAll('.mark-notification-read').forEach(btn => btn.onclick = async () => {
+      try {
+        await api(`/api/notifications/${btn.dataset.id}/read`, { method: 'PATCH' });
+        await loadEverything();
+        render();
+        setToast('Notification marked read', 'success');
+      } catch (error) {
+        setToast(error.message, 'error');
+      }
+    });
+    document.querySelectorAll('.notification-link').forEach(btn => btn.onclick = () => {
+      const viewName = String(btn.dataset.link || '').replace('#', '');
+      if (viewName && canAccessView(viewName)) {
+        state.activeView = viewName;
+        render();
       }
     });
   }
@@ -2617,6 +2682,7 @@ async function loadEverything() {
     state.loads = [];
     state.addresses = [];
     state.bugReports = [];
+    state.notifications = [];
     return;
   }
 
@@ -2631,10 +2697,11 @@ async function loadEverything() {
     api('/api/issues'),
     api('/api/loads'),
     isStaffLike() ? api('/api/addresses') : Promise.resolve([]),
-    isStaffLike() ? api('/api/bug-reports') : Promise.resolve([])
+    isStaffLike() ? api('/api/bug-reports') : Promise.resolve([]),
+    api('/api/notifications')
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports, notifications] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -2646,6 +2713,7 @@ async function loadEverything() {
   state.loads = loads;
   state.addresses = addresses;
   state.bugReports = bugReports;
+  state.notifications = notifications;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }
 

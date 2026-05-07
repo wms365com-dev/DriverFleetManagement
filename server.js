@@ -149,6 +149,23 @@ function publicSignupError(error) {
   }
   return message || 'Unable to create company signup';
 }
+async function notify(companyId, payload) {
+  try {
+    if (!payload?.title) return null;
+    return await db.createNotification(companyId || null, payload);
+  } catch (error) {
+    console.error('Notification failed:', error.message);
+    return null;
+  }
+}
+function loadNotificationMeta(load) {
+  return {
+    loadId: load?.id || null,
+    loadNumber: load?.loadNumber || '',
+    status: load?.status || '',
+    trackingToken: load?.publicTrackingToken || ''
+  };
+}
 async function ensureApprovedCompanyForLogin(user) {
   if (user.role === 'super_user') return;
   const companies = await db.getCompanies();
@@ -620,6 +637,15 @@ app.post('/api/public/signup', async (req, res) => {
       lastName: payload.lastName,
       isActive: false
     });
+    await notify(null, {
+      audience: 'super_user',
+      type: 'company_signup',
+      severity: 'warning',
+      title: 'New company signup needs approval',
+      message: `${company.name} submitted a workspace request for ${payload.firstName} ${payload.lastName}.`,
+      link: '#companies',
+      metadata: { companyId: company.id, companyName: company.name, adminEmail: payload.email }
+    });
     res.json({ ok: true, company, pendingApproval: true, message: 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved.' });
   } catch (error) {
     res.status(400).json({ error: publicSignupError(error) });
@@ -680,6 +706,17 @@ app.patch('/api/companies/:id/status', auth, superOnly, async (req, res) => {
     const status = String(req.body.status || '').trim();
     if (!['active', 'pending', 'inactive'].includes(status)) return res.status(400).json({ error: 'Invalid company status' });
     const company = await db.updateCompanyStatus(Number(req.params.id), status);
+    if (status === 'active') {
+      await notify(company.id, {
+        audience: 'admin',
+        type: 'company_approved',
+        severity: 'success',
+        title: 'Company workspace approved',
+        message: `${company.name} is active. Admin users can now log in and add drivers.`,
+        link: '#adminHome',
+        metadata: { companyId: company.id, companyName: company.name }
+      });
+    }
     res.json(company);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to update company status' });
@@ -961,6 +998,29 @@ app.post('/api/loads', auth, staffOnly, requireCompanyScope, async (req, res) =>
     const payload = loadPayload(req.body);
     await validateLoadCompatibility(req.companyId, payload);
     const load = await db.createLoad(req.companyId, payload, req.sessionUser);
+    await notify(req.companyId, {
+      audience: 'dispatcher',
+      type: load.driverId ? 'load_assigned' : 'load_created',
+      severity: load.driverId ? 'success' : 'info',
+      title: load.driverId ? `Load ${load.loadNumber} assigned` : `Load ${load.loadNumber} created`,
+      message: `${load.pickupName || load.pickupAddress || 'Pickup'} to ${load.deliveryName || load.deliveryAddress || 'delivery'}${load.pickupAppointment ? `, pickup ${new Date(load.pickupAppointment).toLocaleString()}` : ''}.`,
+      link: '#loads',
+      metadata: loadNotificationMeta(load)
+    });
+    if (load.driverId) {
+      const users = await db.getUsers(req.companyId);
+      const driverUser = users.find(user => Number(user.linkedDriverId) === Number(load.driverId));
+      await notify(req.companyId, {
+        userId: driverUser?.id || null,
+        audience: 'driver',
+        type: 'driver_load_assigned',
+        severity: 'warning',
+        title: `New assigned load ${load.loadNumber}`,
+        message: `Pickup: ${load.pickupName || load.pickupAddress || 'Review pickup details'}. Delivery: ${load.deliveryName || load.deliveryAddress || 'Review delivery details'}.`,
+        link: '#driverWork',
+        metadata: loadNotificationMeta(load)
+      });
+    }
     res.json(load);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to create load' });
@@ -976,6 +1036,29 @@ app.patch('/api/loads/:id/status', auth, requireCompanyScope, requireDriverProfi
     if (isDriver(req) && !driverLoadStatuses.has(status)) return res.status(400).json({ error: 'Invalid driver load status' });
     validateLoadCloseRequirements(load, status);
     const updated = await db.updateLoadStatus(req.companyId, load.id, status, req.body.note || '', req.sessionUser);
+    if (status && status !== load.status) {
+      const importantCustomerStatuses = new Set(['picked_up', 'delivered', 'pod_uploaded', 'closed']);
+      await notify(req.companyId, {
+        audience: 'dispatcher',
+        type: 'load_status',
+        severity: ['at_pickup', 'at_delivery'].includes(status) ? 'warning' : 'info',
+        title: `Load ${updated.loadNumber} is ${status.replaceAll('_', ' ')}`,
+        message: req.body.note || `${req.sessionUser.firstName || req.sessionUser.email} updated the load status.`,
+        link: '#loads',
+        metadata: loadNotificationMeta(updated)
+      });
+      if (importantCustomerStatuses.has(status)) {
+        await notify(req.companyId, {
+          audience: 'staff',
+          type: 'customer_update_ready',
+          severity: 'success',
+          title: `Customer update ready for ${updated.loadNumber}`,
+          message: `${updated.customer || 'Customer'} can be notified that the shipment is ${status.replaceAll('_', ' ')}.`,
+          link: '#customerTracking',
+          metadata: loadNotificationMeta(updated)
+        });
+      }
+    }
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to update load' });
@@ -998,6 +1081,15 @@ app.post('/api/loads/:id/documents', auth, requireCompanyScope, requireDriverPro
         url: `/uploads/${file.filename}`
       }, req.sessionUser);
     }
+    await notify(req.companyId, {
+      audience: 'staff',
+      type: 'load_document',
+      severity: ['pod', 'signed_bol', 'bol'].includes(String(req.body.type || '').toLowerCase()) ? 'success' : 'info',
+      title: `${String(req.body.type || 'Document').replaceAll('_', ' ')} uploaded for ${updated.loadNumber}`,
+      message: `${files.length} file${files.length === 1 ? '' : 's'} uploaded by ${req.sessionUser.firstName || req.sessionUser.email}.`,
+      link: '#documents',
+      metadata: { ...loadNotificationMeta(updated), documentType: req.body.type || 'bol', fileCount: files.length }
+    });
     res.json(updated);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to upload document' });
@@ -1086,6 +1178,15 @@ app.post('/api/bug-reports', auth, requireCompanyScope, upload.array('photos', 4
     const payload = bugPayload(req.body, req.files || []);
     if (!payload.title) return res.status(400).json({ error: 'Title is required' });
     const report = await db.createBugReport(req.companyId, payload, req.sessionUser);
+    await notify(req.companyId, {
+      audience: 'staff',
+      type: 'bug_report',
+      severity: payload.priority === 'urgent' ? 'danger' : payload.priority === 'high' ? 'warning' : 'info',
+      title: `New ${payload.priority || 'normal'} bug report`,
+      message: `${report.title} reported by ${report.reporterName || req.sessionUser.email}.`,
+      link: '#bugReports',
+      metadata: { bugReportId: report.id, priority: report.priority, category: report.category }
+    });
     res.json(report);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to submit bug report' });
@@ -1097,6 +1198,21 @@ app.patch('/api/bug-reports/:id', auth, staffOnly, requireCompanyScope, async (r
     res.json(report);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to update bug report' });
+  }
+});
+
+app.get('/api/notifications', auth, requireCompanyScope, async (req, res) => {
+  try {
+    res.json(await db.getNotifications(req.companyId, req.sessionUser));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to load notifications' });
+  }
+});
+app.patch('/api/notifications/:id/read', auth, requireCompanyScope, async (req, res) => {
+  try {
+    res.json(await db.markNotificationRead(req.companyId, Number(req.params.id), req.sessionUser));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update notification' });
   }
 });
 

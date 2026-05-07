@@ -18,7 +18,8 @@ const TABLES = [
   'issues',
   'loads',
   'addresses',
-  'bug_reports'
+  'bug_reports',
+  'notifications'
 ];
 
 function timestamp() {

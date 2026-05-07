@@ -72,9 +72,10 @@ textarea { min-height: 88px; resize: vertical; }
 .status-panel { margin-top: 16px; }
 .sidebar nav { display: grid; gap: 10px; margin-top: 22px; }
 .nav-btn {
-  text-align: left; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 16px; padding: 14px 16px; cursor: pointer;
+  text-align: left; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 16px; padding: 14px 16px; cursor: pointer; position: relative;
 }
 .nav-btn.active, .nav-btn:hover { background: rgba(67,166,255,.10); border-color: rgba(67,166,255,.22); }
+.nav-badge { margin-left:auto; min-width:22px; height:22px; padding:0 6px; border-radius:999px; display:inline-grid; place-items:center; background:var(--red); color:#fff; font-size:11px; }
 .main { display: grid; gap: 18px; }
 .topbar { border-radius: 28px; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; }
 .right-chip { color: var(--muted); padding: 10px 14px; border-radius: 999px; background: rgba(255,255,255,.04); }
@@ -97,6 +98,7 @@ textarea { min-height: 88px; resize: vertical; }
 .list-card, .issue-card, .inspection-card {
   border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.03); color: var(--text);
 }
+.list-card.highlight { border-color: rgba(67,166,255,.4); background: rgba(67,166,255,.08); }
 .list-card p, .issue-card p, .inspection-card p { color: var(--muted); }
 .role-home { display: grid; gap: 16px; }
 .compact-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }

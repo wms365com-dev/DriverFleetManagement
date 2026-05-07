@@ -37,11 +37,11 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 - [x] Customer email/SMS tracking link.
 
 ### Notifications
-- [ ] Driver assigned a load.
+- [x] Driver assigned a load.
 - [ ] Pickup/delivery appointment reminder.
 - [ ] Dispatcher alert if driver is late.
-- [ ] Customer alert when picked up/delivered.
-- [ ] Admin alert for new company signup approval.
+- [x] Customer update alert when picked up/delivered.
+- [x] Admin alert for new company signup approval.
 
 ## Operations Features
 
