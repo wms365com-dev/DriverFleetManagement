@@ -69,6 +69,14 @@ const loadStatusFlow = [
   ['at_delivery', 'At Delivery'],
   ['delivered', 'Confirm Delivery']
 ];
+const dockTypeOptions = [
+  ['dock_level', 'Dock Level'],
+  ['tailgate', 'Tailgate Required'],
+  ['ground_level', 'Ground Level'],
+  ['ramp', 'Ramp'],
+  ['forklift', 'Forklift On Site'],
+  ['unknown', 'Confirm With Site']
+];
 const staffOperationsNav = [
   ['dispatchHome', 'Dashboard'],
   ['loads', 'Dispatch / Loads'],
@@ -251,6 +259,18 @@ function locationLabel(item) {
 }
 function activeAssignmentForDriver(driverId) {
   return state.assignments.find(a => Number(a.driverId) === Number(driverId) && a.active);
+}
+function dockTypeLabel(value) {
+  return dockTypeOptions.find(([key]) => key === value)?.[1] || String(value || '').replaceAll('_', ' ');
+}
+function inferDockType(text = '') {
+  const value = String(text).toLowerCase();
+  if (value.includes('tailgate')) return 'tailgate';
+  if (value.includes('ground')) return 'ground_level';
+  if (value.includes('ramp')) return 'ramp';
+  if (value.includes('forklift')) return 'forklift';
+  if (value.includes('dock')) return 'dock_level';
+  return '';
 }
 function combinedAddressSuggestions(type = 'both') {
   const byAddress = new Map();
@@ -959,6 +979,7 @@ function renderLoads() {
   const customers = uniqueCustomers();
   const pickupLocations = addressSuggestions('pickup');
   const deliveryLocations = addressSuggestions('delivery');
+  const dockOptions = dockTypeOptions.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('');
   return `
     <div class="two-col">
       <section class="panel glass">
@@ -980,10 +1001,16 @@ function renderLoads() {
           <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
           <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" data-address-type="pickup" /></label>
           <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
+          <div class="split"><label>Pickup operations hours<input name="pickupHours" placeholder="Mon-Fri 7-3" /></label><label>Pickup dock / tailgate<select name="pickupDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
+          <div class="split"><label>Pickup contact<input name="pickupContactName" /></label><label>Pickup phone<input name="pickupPhone" /></label></div>
+          <label>Pickup site notes<textarea name="pickupSiteNotes" placeholder="Check-in process, gate code, door, buzzer, loading notes"></textarea></label>
           <label>Saved delivery location<select data-location-select="delivery"><option value="">Choose saved delivery</option>${deliveryLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
           <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
           <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" data-address-type="delivery" /></label>
           <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
+          <div class="split"><label>Delivery operations hours<input name="deliveryHours" placeholder="Mon-Fri 7-3" /></label><label>Delivery dock / tailgate<select name="deliveryDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
+          <div class="split"><label>Delivery contact<input name="deliveryContactName" /></label><label>Delivery phone<input name="deliveryPhone" /></label></div>
+          <label>Delivery site notes<textarea name="deliverySiteNotes" placeholder="Receiving process, gate code, door, buzzer, unloading notes"></textarea></label>
           <div class="form-step"><span>3</span><strong>Freight and Assignment</strong></div>
           <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
           <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
@@ -1015,15 +1042,31 @@ function renderLoads() {
 
 function renderLoadCard(load, dispatcher = false) {
   const docs = load.documents || [];
-  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.customer, load.broker, load.pickupName, load.pickupAddress, load.deliveryName, load.deliveryAddress, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
+  const pickupDetails = stopSiteDetails(load, 'pickup');
+  const deliveryDetails = stopSiteDetails(load, 'delivery');
+  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
     <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')}</p></div>${loadStatusTag(load)}</div>
-    <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p></div></div>
-    <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p></div></div>
+    <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
+    <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
     <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
     <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
     ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
     ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
   </article>`;
+}
+
+function stopSiteDetails(load, prefix) {
+  const contact = load[`${prefix}ContactName`] || '';
+  const phone = load[`${prefix}Phone`] || '';
+  const hours = load[`${prefix}Hours`] || '';
+  const dock = load[`${prefix}DockType`] ? dockTypeLabel(load[`${prefix}DockType`]) : '';
+  const notes = load[`${prefix}SiteNotes`] || '';
+  return [
+    hours ? `Hours: ${hours}` : '',
+    contact || phone ? `Contact: ${[contact, phone].filter(Boolean).join(' ')}` : '',
+    dock ? `Dock: ${dock}` : '',
+    notes
+  ].filter(Boolean).join(' | ');
 }
 
 function renderInspections() {
@@ -1752,8 +1795,16 @@ function applyLocationToLoadForm(form, item, type) {
   if (nameInput) nameInput.value = item.name || item.customer || '';
   if (addressInput) addressInput.value = item.address || '';
   if (form.elements.customer && !form.elements.customer.value && item.customer) form.elements.customer.value = item.customer;
-  const noteParts = [item.hours ? `Hours: ${item.hours}` : '', item.dockNotes ? `Dock: ${item.dockNotes}` : '', item.contactName ? `Contact: ${item.contactName}${item.phone ? ` ${item.phone}` : ''}` : ''].filter(Boolean);
-  if (noteParts.length && form.elements.notes && !form.elements.notes.value) form.elements.notes.value = noteParts.join('\n');
+  const contactInput = form.elements[`${prefix}ContactName`];
+  const phoneInput = form.elements[`${prefix}Phone`];
+  const hoursInput = form.elements[`${prefix}Hours`];
+  const dockInput = form.elements[`${prefix}DockType`];
+  const siteNotesInput = form.elements[`${prefix}SiteNotes`];
+  if (contactInput && !contactInput.value) contactInput.value = item.contactName || '';
+  if (phoneInput && !phoneInput.value) phoneInput.value = item.phone || '';
+  if (hoursInput && !hoursInput.value) hoursInput.value = item.hours || '';
+  if (dockInput && !dockInput.value) dockInput.value = inferDockType(item.dockNotes || '');
+  if (siteNotesInput && !siteNotesInput.value) siteNotesInput.value = item.dockNotes || item.notes || '';
 }
 
 function bindLoadEntryHelpers() {

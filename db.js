@@ -205,9 +205,19 @@ function mapLoad(r) {
     pickupName: r.pickup_name || r.pickupName || '',
     pickupAddress: r.pickup_address || r.pickupAddress || '',
     pickupAppointment: r.pickup_appointment || r.pickupAppointment || '',
+    pickupContactName: r.pickup_contact_name || r.pickupContactName || '',
+    pickupPhone: r.pickup_phone || r.pickupPhone || '',
+    pickupHours: r.pickup_hours || r.pickupHours || '',
+    pickupDockType: r.pickup_dock_type || r.pickupDockType || '',
+    pickupSiteNotes: r.pickup_site_notes || r.pickupSiteNotes || '',
     deliveryName: r.delivery_name || r.deliveryName || '',
     deliveryAddress: r.delivery_address || r.deliveryAddress || '',
     deliveryAppointment: r.delivery_appointment || r.deliveryAppointment || '',
+    deliveryContactName: r.delivery_contact_name || r.deliveryContactName || '',
+    deliveryPhone: r.delivery_phone || r.deliveryPhone || '',
+    deliveryHours: r.delivery_hours || r.deliveryHours || '',
+    deliveryDockType: r.delivery_dock_type || r.deliveryDockType || '',
+    deliverySiteNotes: r.delivery_site_notes || r.deliverySiteNotes || '',
     commodity: r.commodity || '',
     weight: r.weight ?? 0,
     pieces: r.pieces ?? '',
@@ -417,9 +427,19 @@ async function initPostgres() {
     pickup_name TEXT,
     pickup_address TEXT,
     pickup_appointment TIMESTAMPTZ,
+    pickup_contact_name TEXT,
+    pickup_phone TEXT,
+    pickup_hours TEXT,
+    pickup_dock_type TEXT,
+    pickup_site_notes TEXT,
     delivery_name TEXT,
     delivery_address TEXT,
     delivery_appointment TIMESTAMPTZ,
+    delivery_contact_name TEXT,
+    delivery_phone TEXT,
+    delivery_hours TEXT,
+    delivery_dock_type TEXT,
+    delivery_site_notes TEXT,
     commodity TEXT,
     weight INTEGER DEFAULT 0,
     pieces TEXT,
@@ -473,6 +493,16 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS location_history JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_contact_name TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_phone TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_hours TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_dock_type TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS pickup_site_notes TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_contact_name TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_phone TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_hours TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_dock_type TEXT`);
+  await pool.query(`ALTER TABLE loads ADD COLUMN IF NOT EXISTS delivery_site_notes TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'power_unit'`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS length TEXT`);
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS max_weight INTEGER`);
@@ -782,8 +812,8 @@ const fileDb = {
     const load = { id: nextId(db.loads), companyId, ...payload, status, events: [commonMethods.buildLoadEvent(status, 'Load created', user)], documents: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     db.loads.push(load);
     writeFileDb(db);
-    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', lastUsedAt: new Date().toISOString() });
-    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', lastUsedAt: new Date().toISOString() });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - '), lastUsedAt: new Date().toISOString() });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - '), lastUsedAt: new Date().toISOString() });
     return mapLoad(load);
   },
   async updateLoadStatus(companyId, id, status, note, user) {
@@ -976,9 +1006,9 @@ const pgDb = {
     if (payload.trailerId) { const trailer = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.trailerId]); if (!trailer.rows[0]) throw new Error('Trailer/equipment not found.'); }
     const status = payload.driverId ? 'assigned' : 'new';
     const events = [commonMethods.buildLoadEvent(status, 'Load created', user)];
-    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,delivery_name,delivery_address,delivery_appointment,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,status,JSON.stringify(events)]);
-    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup' });
-    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery' });
+    const r = await pool.query(`INSERT INTO loads (company_id,load_number,customer,broker,reference_number,pickup_name,pickup_address,pickup_appointment,pickup_contact_name,pickup_phone,pickup_hours,pickup_dock_type,pickup_site_notes,delivery_name,delivery_address,delivery_appointment,delivery_contact_name,delivery_phone,delivery_hours,delivery_dock_type,delivery_site_notes,commodity,weight,pieces,rate,notes,driver_id,vehicle_id,trailer_id,status,events,documents,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31::jsonb,'[]'::jsonb,NOW(),NOW()) RETURNING *`, [companyId,payload.loadNumber,payload.customer || '',payload.broker || '',payload.referenceNumber || '',payload.pickupName || '',payload.pickupAddress || '',payload.pickupAppointment || null,payload.pickupContactName || '',payload.pickupPhone || '',payload.pickupHours || '',payload.pickupDockType || '',payload.pickupSiteNotes || '',payload.deliveryName || '',payload.deliveryAddress || '',payload.deliveryAppointment || null,payload.deliveryContactName || '',payload.deliveryPhone || '',payload.deliveryHours || '',payload.deliveryDockType || '',payload.deliverySiteNotes || '',payload.commodity || '',payload.weight || 0,payload.pieces || '',payload.rate || '',payload.notes || '',payload.driverId || null,payload.vehicleId || null,payload.trailerId || null,status,JSON.stringify(events)]);
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.pickupName, address: payload.pickupAddress, type: 'pickup', contactName: payload.pickupContactName, phone: payload.pickupPhone, hours: payload.pickupHours, dockNotes: [payload.pickupDockType, payload.pickupSiteNotes].filter(Boolean).join(' - ') });
+    await this.upsertAddress(companyId, { customer: payload.customer, name: payload.deliveryName, address: payload.deliveryAddress, type: 'delivery', contactName: payload.deliveryContactName, phone: payload.deliveryPhone, hours: payload.deliveryHours, dockNotes: [payload.deliveryDockType, payload.deliverySiteNotes].filter(Boolean).join(' - ') });
     return mapLoad(r.rows[0]);
   },
   async updateLoadStatus(companyId, id, status, note, user) {
