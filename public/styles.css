@@ -123,6 +123,8 @@ textarea { min-height: 88px; resize: vertical; }
 .dispatch-column-head span { min-width:24px; height:24px; border-radius:999px; display:grid; place-items:center; background:rgba(67,166,255,.14); color:#b7e1ff; font-size:12px; font-weight:800; }
 .dispatch-column-body { display:grid; align-content:start; gap:10px; padding:10px; }
 .dispatch-card { display:grid; gap:9px; padding:12px; border:1px solid rgba(169,184,205,.18); border-radius:14px; background:rgba(9,17,30,.66); }
+.dispatch-card[draggable="true"] { cursor:grab; }
+.dispatch-card.dragging { opacity:.55; border-color:rgba(67,166,255,.6); }
 .dispatch-card .tag { white-space:nowrap; }
 .dispatch-stop { display:grid; grid-template-columns:28px 1fr; gap:8px; align-items:start; }
 .dispatch-stop span { width:24px; height:24px; border-radius:999px; display:grid; place-items:center; background:rgba(67,166,255,.14); color:#9ed6ff; font-size:10px; font-weight:800; }
@@ -130,6 +132,13 @@ textarea { min-height: 88px; resize: vertical; }
 .dispatch-stop small { color:var(--muted); }
 .dispatch-assign-form label { font-size:11px; gap:5px; }
 .dispatch-assign-form select { min-height:36px; border-radius:10px; padding:8px 10px; font-size:12px; }
+.driver-drop-board { display:grid; gap:10px; padding-top:6px; }
+.driver-drop-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; }
+.driver-drop-zone { min-height:78px; display:grid; gap:5px; text-align:left; border:1px dashed rgba(169,184,205,.28); border-radius:14px; padding:12px; background:rgba(255,255,255,.035); color:var(--text); }
+.driver-drop-zone span { color:var(--muted); font-size:12px; }
+.driver-drop-zone.available { border-color:rgba(30,200,141,.36); background:rgba(30,200,141,.08); }
+.driver-drop-zone.locked { opacity:.55; cursor:not-allowed; }
+.driver-drop-zone.drag-over { border-color:rgba(67,166,255,.75); background:rgba(67,166,255,.16); transform:translateY(-1px); }
 .extra-stops-panel { display:grid; gap:10px; padding:12px; border:1px solid rgba(90,166,232,.22); border-radius:12px; background:rgba(90,166,232,.055); }
 .extra-stops-list { display:grid; gap:10px; }
 .extra-stop-card { display:grid; gap:10px; padding:12px; border:1px solid var(--line); border-radius:12px; background:rgba(9,17,30,.55); }

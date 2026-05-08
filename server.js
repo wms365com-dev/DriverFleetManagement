@@ -345,13 +345,13 @@ async function validateLoadCompatibility(companyId, payload) {
   }
   if (driver) {
     if (driver.status !== 'active') throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ' is not active.');
-    const activeDriverLoad = loads.find(load => isActiveLoad(load) && Number(load.driverId) === Number(driver.id));
+    const activeDriverLoad = loads.find(load => isActiveLoad(load) && Number(load.id) !== Number(payload.id) && Number(load.driverId) === Number(driver.id));
     if (activeDriverLoad) throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ` is already assigned to active load ${activeDriverLoad.loadNumber}.`);
     if (requiresHeavyLicense(payload, power, trailer) && !hasHeavyLicense(driver)) throw new Error(`${driver.firstName || 'Driver'} ${driver.lastName || ''}`.trim() + ' needs an AZ/Class A license for this load.');
   }
   for (const unit of [power, trailer].filter(Boolean)) {
     if (unit.status === 'out_of_service') throw new Error(`${equipmentName(unit)} is out of service.`);
-    const activeUnitLoad = loads.find(load => isActiveLoad(load) && (Number(load.vehicleId) === Number(unit.id) || Number(load.trailerId) === Number(unit.id)));
+    const activeUnitLoad = loads.find(load => isActiveLoad(load) && Number(load.id) !== Number(payload.id) && (Number(load.vehicleId) === Number(unit.id) || Number(load.trailerId) === Number(unit.id)));
     if (activeUnitLoad) throw new Error(`${equipmentName(unit)} is already assigned to active load ${activeUnitLoad.loadNumber}.`);
   }
   const limits = [power?.maxWeight, trailer?.maxWeight].filter(value => Number(value) > 0).map(Number);

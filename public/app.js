@@ -461,6 +461,11 @@ function driverAvailableForLoad(driver) {
 function vehicleAvailableForLoad(vehicle) {
   return vehicle && vehicle.status !== 'out_of_service' && !vehicleActiveLoad(vehicle.id);
 }
+function driverAvailableForDrop(driver) {
+  const assignment = activeAssignmentForDriver(driver.id);
+  const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
+  return driverAvailableForLoad(driver) && vehicle && vehicleAvailableForLoad(vehicle);
+}
 function driverOptionLabel(driver) {
   const activeLoad = driverActiveLoad(driver.id);
   const status = driver.status !== 'active' ? ` - ${driver.status}` : activeLoad ? ` - on ${activeLoad.loadNumber}` : '';
@@ -1588,6 +1593,20 @@ function renderDispatchBoard() {
         </div>
       </section>`).join('')}
     </div>
+    <div class="driver-drop-board">
+      <div class="panel-head"><h3>Drag To Assign</h3><p>Drop an unassigned load onto a driver with an active vehicle assignment.</p></div>
+      <div class="driver-drop-grid">
+        ${state.drivers.map(driver => {
+          const assignment = activeAssignmentForDriver(driver.id);
+          const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
+          const available = driverAvailableForDrop(driver);
+          return `<button class="driver-drop-zone ${available ? 'available' : 'locked'}" type="button" data-driver-drop="${attr(driver.id)}" ${available ? '' : 'disabled'}>
+            <strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim())}</strong>
+            <span>${vehicle ? esc(vehicleOptionLabel(vehicle)) : 'No active vehicle assignment'}</span>
+          </button>`;
+        }).join('') || '<p class="tiny">No drivers available.</p>'}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1595,7 +1614,7 @@ function renderDispatchBoardCard(load) {
   const extraStops = Array.isArray(load.loadDetails?.extraStops) ? load.loadDetails.extraStops : [];
   const powerOptions = powerUnits().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.vehicleId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.vehicleId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
   const trailerOptions = trailers().map(v => `<option value="${attr(v.id)}" ${Number(v.id) === Number(load.trailerId) ? 'selected' : ''} ${vehicleAvailableForLoad(v) || Number(v.id) === Number(load.trailerId) ? '' : 'disabled'}>${esc(vehicleOptionLabel(v))}</option>`).join('');
-  return `<article class="dispatch-card" data-load-board-card="${attr(load.id)}">
+  return `<article class="dispatch-card" data-load-board-card="${attr(load.id)}" ${!load.driverId ? `draggable="true" data-dispatch-drag-load="${attr(load.id)}"` : ''}>
     <div class="card-row"><strong>${esc(load.loadNumber)}</strong>${loadStatusTag(load)}</div>
     <p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p>
     <div class="dispatch-stop"><span>PU</span><p>${esc(load.pickupName || load.pickupAddress || 'Pickup')}<small>${fmt(load.pickupAppointment)}</small></p></div>
@@ -2793,6 +2812,40 @@ function bindExtraStops() {
 }
 
 function bindDispatchBoard() {
+  document.querySelectorAll('[data-dispatch-drag-load]').forEach(card => {
+    card.ondragstart = event => {
+      event.dataTransfer.setData('text/plain', card.dataset.dispatchDragLoad);
+      event.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    };
+    card.ondragend = () => card.classList.remove('dragging');
+  });
+  document.querySelectorAll('[data-driver-drop]').forEach(zone => {
+    zone.ondragover = event => {
+      if (zone.disabled) return;
+      event.preventDefault();
+      zone.classList.add('drag-over');
+    };
+    zone.ondragleave = () => zone.classList.remove('drag-over');
+    zone.ondrop = async event => {
+      event.preventDefault();
+      zone.classList.remove('drag-over');
+      const loadId = event.dataTransfer.getData('text/plain');
+      const driverId = zone.dataset.driverDrop;
+      const assignment = activeAssignmentForDriver(driverId);
+      if (!loadId || !assignment) return;
+      await guardedSubmit(`dropAssign${loadId}`, zone, 'Assigning...', async () => {
+        await api(`/api/loads/${loadId}/assignment`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driverId, vehicleId: assignment.vehicleId || '', trailerId: '' })
+        });
+        await loadEverything();
+        render();
+        setToast('Load assigned from dispatch board', 'success');
+      });
+    };
+  });
   document.querySelectorAll('.dispatch-assign-form').forEach(form => {
     form.onsubmit = async e => {
       e.preventDefault();

@@ -46,7 +46,7 @@ This is the working build checklist for turning Dispatcher365 into a mature driv
 ## Operations Features
 
 - [x] Calendar/dispatch board by day.
-- [ ] Drag-and-drop load assignment.
+- [x] Drag-and-drop load assignment.
 - [ ] Driver availability schedule.
 - [x] Unassigned loads queue.
 - [x] Extra stops for multi-pickup or multi-delivery loads.
