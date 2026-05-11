@@ -10,6 +10,7 @@
     "restore:dry-run": "node scripts/restore-data.js",
     "stripe:setup": "node scripts/setup-stripe.js",
     "qa:stripe": "node scripts/qa-stripe-checkout.js",
+    "guides:generate": "node scripts/generate-user-guides.js",
     "qa": "node scripts/qa-playwright.js"
   },
   "dependencies": {
