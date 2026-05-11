@@ -7,7 +7,8 @@ const outDir = path.resolve(__dirname, '..', 'public', 'guides');
 
 const guides = [
   ['user-guide.html', 'dispatcher365-user-guide-en.pdf'],
-  ['user-guide-pa.html', 'dispatcher365-user-guide-pa.pdf']
+  ['user-guide-pa.html', 'dispatcher365-user-guide-pa.pdf'],
+  ['user-guide-ta.html', 'dispatcher365-user-guide-ta.pdf']
 ];
 
 async function main() {

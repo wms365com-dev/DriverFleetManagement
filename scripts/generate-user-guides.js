@@ -130,12 +130,31 @@ const sectionsPa = [
   ['reports', 'ਰਿਪੋਰਟਾਂ, ਸੈਟਿੰਗਜ਼ ਅਤੇ ਸਪੋਰਟ', 'Reports load activity, inspections, defects, documents ਅਤੇ driver activity summarize ਕਰਦੀਆਂ ਹਨ। Settings company configuration, notifications ਅਤੇ backup guidance ਦਿਖਾਉਂਦੀਆਂ ਹਨ।', ['Reports ਖੋਲ੍ਹ ਕੇ summary ਦੇਖੋ।', 'Settings ਵਿੱਚ setup status confirm ਕਰੋ।', 'App issue ਲਈ Bug Reports ਵਰਤੋ।'], '10-reports-settings.jpg']
 ];
 
+const sectionsTa = [
+  ['home', 'மார்க்கெட்டிங் பக்கம் மற்றும் விலை', 'பொது முகப்பு பக்கம் Dispatcher365 பற்றிய தகவல், 14 நாள் கார்டு-தேவையான ட்ரயல், சைன்அப் மற்றும் ஷிப்ப்மெண்ட் டிராக்கிங் இணைப்புகளை காட்டுகிறது.', ['முகப்பு பக்கத்தை திறக்கவும்.', 'விலை மற்றும் கட்டண மெனுவை பார்க்கவும்.', 'வாடிக்கையாளர் தயாராக இருந்தால் Start 14-Day Trial என்பதை தேர்வு செய்யவும்.'], '01-home.jpg'],
+  ['signup', 'நிறுவன பதிவு', 'முதலில் நிறுவனம் பதிவு செய்ய வேண்டும். சூப்பர் அட்மின் ஒப்புதல் மற்றும் பில்லிங் செயல்படும் வரை workspace pending நிலையில் இருக்கும்.', ['நிறுவன பெயர் மற்றும் fleet size நிரப்பவும்.', 'Plan மற்றும் active driver எண்ணிக்கையை தேர்வு செய்யவும்.', 'முதல் admin user உருவாக்கவும்.', 'Stripe trial setup மூலம் கார்டை சேர்க்கவும்.'], '02-signup.jpg'],
+  ['tracking', 'பொது ஷிப்ப்மெண்ட் டிராக்கிங்', 'வாடிக்கையாளர்கள் dispatcher portal-ல் login செய்யாமல் load status பார்க்க முடியும்.', ['Shipment Tracking திறக்கவும்.', 'Load number அல்லது tracking ID உள்ளிடவும்.', 'Status history, stops மற்றும் approved documents பார்க்கவும்.'], '03-tracking.jpg'],
+  ['admin', 'அட்மின் முகப்பு', 'Admins company setup, users, drivers, equipment, assignments, billing status மற்றும் reports நிர்வகிக்கலாம்.', ['Admin அல்லது super admin ஆக login செய்யவும்.', 'Dashboard cards மூலம் setup பகுதிகளை திறக்கவும்.', 'Users login செய்வதற்கு முன் company approval மற்றும் billing status சரிபார்க்கவும்.'], '04-admin-home.jpg'],
+  ['companies', 'நிறுவன ஒப்புதல் மற்றும் பில்லிங்', 'Super admin நிறுவனங்களை approve செய்யலாம் மற்றும் billing active உள்ளதா அல்லது access block செய்கிறதா என்பதை பார்க்கலாம்.', ['Company Setup திறக்கவும்.', 'Pending companies approve செய்யவும்.', 'Billing verify ஆன பிறகே Mark Paid பயன்படுத்தவும்.'], '05-companies.jpg'],
+  ['dispatch', 'Dispatch Board மற்றும் Load உருவாக்குதல்', 'Dispatchers loads உருவாக்கி, stops சேர்த்து, drivers மற்றும் compatible equipment assign செய்து, unassigned மற்றும் in-transit work monitor செய்யலாம்.', ['Dispatch / Loads திறக்கவும்.', 'Saved customer/location fields பயன்படுத்தி typing குறைக்கவும்.', 'Driver மற்றும் vehicle assign செய்யவும்.', 'Board மூலம் today, upcoming, unassigned மற்றும் in-transit work பார்க்கவும்.'], '06-dispatch-loads.jpg'],
+  ['driver-checkin', 'Driver Check-In மற்றும் Inspection', 'Drivers ready for work ஆகுவதற்கு அல்லது assigned load update செய்வதற்கு முன் vehicle inspection முடிக்க வேண்டும்.', ['Driver mobile-ல் login செய்யவும்.', 'Check-In திறக்கவும்.', 'Pre-trip inspection submit செய்யவும்.', 'Inspection முடிந்த பிறகு shift start செய்யவும்.'], '07-driver-checkin.jpg'],
+  ['driver-work', 'Driver Assigned Work', 'Drivers pickup, transit, delivery, BOL/POD, exceptions மற்றும் signatures ஆகியவற்றை mobile assigned work page-ல் update செய்யலாம்.', ['Assigned Work திறக்கவும்.', 'One-tap status buttons பயன்படுத்தவும்.', 'தேவையான proof documents upload செய்யவும்.', 'தேவைப்பட்டால் signature capture செய்யவும்.'], '08-driver-work.jpg'],
+  ['customer', 'Customer Tracking மற்றும் Visibility', 'Dispatch public tracking links copy செய்யலாம் மற்றும் customers எந்த proof documents பார்க்கலாம் என்பதை control செய்யலாம்.', ['Customer Tracking திறக்கவும்.', 'Customer அல்லது load search செய்யவும்.', 'Update text அல்லது tracking link copy செய்யவும்.', 'Load card-ல் public BOL/POD visibility தேர்வு செய்யவும்.'], '09-customer-tracking.jpg'],
+  ['reports', 'Reports, Settings மற்றும் Support', 'Reports load activity, inspections, defects, documents மற்றும் driver activity summarize செய்கின்றன. Settings company configuration, notifications மற்றும் backup guidance காட்டுகின்றன.', ['Reports திறந்து operational summaries பார்க்கவும்.', 'Settings திறந்து setup status confirm செய்யவும்.', 'Staff அல்லது drivers app issue report செய்ய Bug Reports பயன்படுத்தவும்.'], '10-reports-settings.jpg']
+];
+
 function renderGuide({ lang, title, subtitle, sections }) {
+  const noteTitle = lang === 'pa' ? 'ਮਹੱਤਵਪੂਰਨ ਨੋਟ' : lang === 'ta' ? 'முக்கிய குறிப்புகள்' : 'Important Notes';
+  const noteBody = lang === 'pa'
+    ? 'ਹਰ ਕੰਪਨੀ ਦੀ ਜਾਣਕਾਰੀ company-scoped ਹੈ। Billing payment issue ਹੋਣ ਤੇ portal access block ਹੋ ਸਕਦਾ ਹੈ। Super admin approval ਅਤੇ active billing ਦੋਵੇਂ ਲੋੜੀਂਦੇ ਹਨ।'
+    : lang === 'ta'
+      ? 'ஒவ்வொரு நிறுவனத்தின் தரவும் company-scoped ஆக தனியாக வைக்கப்படும். Billing payment issue இருந்தால் portal access block ஆகலாம். Super admin approval மற்றும் active billing இரண்டும் தேவையானவை.'
+      : 'Each company keeps its own company-scoped data. If billing has a payment issue, portal access can be blocked. Super admin approval and active billing are both required.';
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${title}</title>${guideCss()}</head><body>
     <header><p>Dispatcher365</p><h1>${title}</h1><p>${subtitle}</p><div class="toc">${sections.map(([id, heading]) => `<a href="#${id}">${heading}</a>`).join('')}</div></header>
     <nav>${sections.map(([id, heading]) => `<a href="#${id}">${heading}</a>`).join('')}</nav>
     <main>${sections.map(([id, heading, intro, steps, image]) => `<section class="section" id="${id}"><h2>${heading}</h2><p class="meta">${intro}</p><ol class="steps">${steps.map(step => `<li>${step}</li>`).join('')}</ol><div class="shot"><img src="screenshots/${image}" alt="${heading}" /></div></section>`).join('')}
-    <section class="section"><h2>${lang === 'pa' ? 'ਮਹੱਤਵਪੂਰਨ ਨੋਟ' : 'Important Notes'}</h2><p class="note">${lang === 'pa' ? 'ਹਰ ਕੰਪਨੀ ਦੀ ਜਾਣਕਾਰੀ company-scoped ਹੈ। Billing payment issue ਹੋਣ ਤੇ portal access block ਹੋ ਸਕਦਾ ਹੈ। Super admin approval ਅਤੇ active billing ਦੋਵੇਂ ਲੋੜੀਂਦੇ ਹਨ।' : 'Each company keeps its own company-scoped data. If billing has a payment issue, portal access can be blocked. Super admin approval and active billing are both required.'}</p></section></main>
+    <section class="section"><h2>${noteTitle}</h2><p class="note">${noteBody}</p></section></main>
     <footer>Dispatcher365 &copy; ${new Date().getFullYear()}</footer></body></html>`;
 }
 
@@ -196,7 +215,13 @@ async function main() {
     subtitle: 'ਕੰਪਨੀ ਸਾਈਨਅਪ, ਡਿਸਪੈਚ, ਡਰਾਈਵਰ ਮੋਬਾਈਲ ਕੰਮ, customer tracking, billing ਅਤੇ reports ਲਈ step-by-step guide.',
     sections: sectionsPa
   }));
-  console.log(JSON.stringify({ ok: true, output: outDir, guides: ['user-guide.html', 'user-guide-pa.html'] }, null, 2));
+  fs.writeFileSync(path.join(outDir, 'user-guide-ta.html'), renderGuide({
+    lang: 'ta',
+    title: 'Dispatcher365 பயன்பாட்டு வழிகாட்டி',
+    subtitle: 'நிறுவன பதிவு, dispatch, driver mobile work, customer tracking, billing மற்றும் reports ஆகியவற்றிற்கான படிப்படியான வழிகாட்டி.',
+    sections: sectionsTa
+  }));
+  console.log(JSON.stringify({ ok: true, output: outDir, guides: ['user-guide.html', 'user-guide-pa.html', 'user-guide-ta.html'] }, null, 2));
 }
 
 main().catch(error => {
