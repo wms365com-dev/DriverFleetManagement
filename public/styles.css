@@ -902,6 +902,26 @@ td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
+.trial-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -6px 0 18px;
+  padding: 14px 18px;
+  border: 1px solid rgba(22,133,229,.18);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 45px rgba(8,16,24,.08);
+}
+.trial-banner strong {
+  color: #126fc4;
+  font-size: 18px;
+}
+.trial-banner span {
+  color: #5b6b7d;
+  line-height: 1.45;
+}
 .pricing-card {
   position: relative;
   display: grid;
@@ -1185,6 +1205,9 @@ td {
   }
   .pricing-card.featured {
     transform: none;
+  }
+  .trial-banner {
+    display: grid;
   }
   .fee-menu-head {
     display: grid;

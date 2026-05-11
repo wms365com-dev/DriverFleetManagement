@@ -57,9 +57,10 @@ async function runStep(name, fn) {
     await page.getByRole('link', { name: /sign up/i }).first().waitFor({ timeout: 10000 });
     expect(await page.getByText('Dispatch Software').first().isVisible(), 'Marketing value prop missing');
     expect(await page.getByRole('link', { name: /shipment tracking/i }).first().isVisible(), 'Tracking link missing');
-    expect(await page.getByRole('heading', { name: /Start with a company workspace/i }).isVisible(), 'Pricing section missing');
+    expect(await page.getByRole('heading', { name: /14 days free/i }).isVisible(), 'Pricing trial section missing');
     expect(await page.getByLabel(/Pricing and fees menu/i).isVisible(), 'Pricing fees menu missing');
     expect(await page.getByText(/What customers pay for/i).isVisible(), 'Pricing fees menu heading missing');
+    expect(await page.getByText(/Valid credit card required/i).isVisible(), 'Credit card trial notice missing');
   });
 
   await runStep('Public Stripe billing config', async () => {

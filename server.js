@@ -21,6 +21,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 8 * 1024 * 1024, files: 8 } });
 const GEOAPIFY_API_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2026-02-25.clover' }) : null;
+const STRIPE_TRIAL_DAYS = Number(process.env.STRIPE_TRIAL_DAYS || 14);
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -860,8 +861,10 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
         { price: payload.plan.basePriceId, quantity: 1 },
         { price: payload.plan.driverPriceId, quantity: payload.driverQuantity }
       ],
+      payment_method_collection: 'always',
       allow_promotion_codes: true,
       subscription_data: {
+        trial_period_days: STRIPE_TRIAL_DAYS,
         metadata: {
           plan: payload.planKey,
           companyId: payload.companyId ? String(payload.companyId) : '',
@@ -873,7 +876,8 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
         plan: payload.planKey,
         companyId: payload.companyId ? String(payload.companyId) : '',
         companyName: payload.companyName,
-        driverQuantity: String(payload.driverQuantity)
+        driverQuantity: String(payload.driverQuantity),
+        trialDays: String(STRIPE_TRIAL_DAYS)
       },
       success_url: process.env.STRIPE_SUCCESS_URL || `${origin}/signup?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: process.env.STRIPE_CANCEL_URL || `${origin}/signup?payment=cancelled`

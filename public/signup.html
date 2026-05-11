@@ -58,12 +58,13 @@
         </select></label>
         <div class="split">
           <label>Plan<select name="plan">
-            <option value="starter">Starter - $99 base + $10/driver early</option>
-            <option value="operations" selected>Operations - $149 base + $15/driver</option>
-            <option value="pro">Pro - $399 base + $18/driver</option>
+            <option value="starter">Starter - 14 days free, then $99 base + $10/driver early</option>
+            <option value="operations" selected>Operations - 14 days free, then $149 base + $15/driver</option>
+            <option value="pro">Pro - 14 days free, then $399 base + $18/driver</option>
           </select></label>
           <label>Active drivers<input name="driverQuantity" type="number" min="1" max="500" value="3" /></label>
         </div>
+        <p class="tiny">A valid credit card is required to start the 14-day free trial. Billing starts automatically after the trial unless cancelled.</p>
 
         <div class="soft-rule"></div>
         <div>
@@ -80,7 +81,7 @@
         <label>Confirm password<input name="confirmPassword" type="password" required autocomplete="new-password" minlength="10" /></label>
         <label class="hp-field">Website<input name="website" tabindex="-1" autocomplete="off" /></label>
         <button class="btn primary" type="submit">Create Company Workspace</button>
-        <button class="btn ghost" type="button" id="stripeCheckoutBtn">Pay With Stripe</button>
+        <button class="btn ghost" type="button" id="stripeCheckoutBtn">Start 14-Day Trial With Stripe</button>
         <p class="signup-message" id="signupMessage" role="status"></p>
       </form>
     </section>
