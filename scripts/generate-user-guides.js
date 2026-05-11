@@ -143,12 +143,27 @@ const sectionsTa = [
   ['reports', 'Reports, Settings மற்றும் Support', 'Reports load activity, inspections, defects, documents மற்றும் driver activity summarize செய்கின்றன. Settings company configuration, notifications மற்றும் backup guidance காட்டுகின்றன.', ['Reports திறந்து operational summaries பார்க்கவும்.', 'Settings திறந்து setup status confirm செய்யவும்.', 'Staff அல்லது drivers app issue report செய்ய Bug Reports பயன்படுத்தவும்.'], '10-reports-settings.jpg']
 ];
 
+const sectionsEs = [
+  ['home', 'Página de marketing y precios', 'La página pública explica Dispatcher365, muestra la prueba de 14 días con tarjeta requerida y dirige a los clientes al registro o al rastreo de envíos.', ['Abra la página de inicio.', 'Revise los precios y el menú de tarifas.', 'Seleccione Start 14-Day Trial cuando el cliente esté listo para configurar la facturación.'], '01-home.jpg'],
+  ['signup', 'Registro de empresa', 'La empresa se registra primero. El espacio de trabajo queda pendiente hasta que el super admin apruebe la empresa y la facturación esté activa.', ['Ingrese el nombre de la empresa y el tamaño de la flota.', 'Seleccione el plan y la cantidad de conductores activos.', 'Cree el primer usuario administrador.', 'Use la configuración de prueba de Stripe para agregar la tarjeta.'], '02-signup.jpg'],
+  ['tracking', 'Rastreo público de envíos', 'Los clientes pueden rastrear cargas sin iniciar sesión en el portal de despacho.', ['Abra Shipment Tracking.', 'Ingrese el número de carga o tracking ID.', 'Revise el historial de estado, paradas y documentos aprobados.'], '03-tracking.jpg'],
+  ['admin', 'Inicio de administrador', 'Los administradores gestionan configuración de empresa, usuarios, conductores, equipo, asignaciones, estado de facturación y reportes.', ['Inicie sesión como admin o super admin.', 'Use las tarjetas del dashboard para abrir las áreas de configuración.', 'Revise la aprobación de empresa y el estado de facturación antes de habilitar el acceso de usuarios.'], '04-admin-home.jpg'],
+  ['companies', 'Aprobación de empresa y facturación', 'El super admin aprueba empresas y puede ver si la facturación está activa o si está bloqueando el acceso.', ['Abra Company Setup.', 'Apruebe las empresas pendientes.', 'Use Mark Paid solo cuando la facturación haya sido verificada.'], '05-companies.jpg'],
+  ['dispatch', 'Dispatch Board y creación de carga', 'Los dispatchers crean cargas, agregan paradas, asignan conductores y equipo compatible, y monitorean cargas sin asignar y en tránsito.', ['Abra Dispatch / Loads.', 'Use clientes y ubicaciones guardadas para reducir escritura.', 'Asigne conductor y vehículo.', 'Use el tablero para monitorear trabajo de hoy, próximo, sin asignar y en tránsito.'], '06-dispatch-loads.jpg'],
+  ['driver-checkin', 'Check-in e inspección del conductor', 'Los conductores deben completar una inspección del vehículo antes de quedar listos para trabajar o actualizar cargas asignadas.', ['El conductor inicia sesión en el móvil.', 'Abra Check-In.', 'Envíe la inspección pre-trip.', 'Inicie el turno después de que la inspección habilite el trabajo.'], '07-driver-checkin.jpg'],
+  ['driver-work', 'Trabajo asignado al conductor', 'Los conductores actualizan pickup, tránsito, entrega, BOL/POD, excepciones y firmas desde la página móvil de trabajo asignado.', ['Abra Assigned Work.', 'Use los botones de estado de un toque.', 'Suba los documentos de prueba requeridos.', 'Capture la firma cuando sea necesario.'], '08-driver-work.jpg'],
+  ['customer', 'Customer Tracking y visibilidad', 'Dispatch puede copiar enlaces públicos de rastreo y controlar qué documentos de prueba pueden ver los clientes.', ['Abra Customer Tracking.', 'Busque por cliente o carga.', 'Copie el texto de actualización o el enlace de rastreo.', 'Seleccione la visibilidad pública de BOL/POD en la tarjeta de la carga.'], '09-customer-tracking.jpg'],
+  ['reports', 'Reportes, configuración y soporte', 'Los reportes resumen actividad de cargas, inspecciones, defectos, documentos y actividad de conductores. Settings muestra configuración de empresa, notificaciones y guía de respaldo.', ['Abra Reports para ver resúmenes operativos.', 'Abra Settings para confirmar el estado de configuración.', 'Use Bug Reports cuando el personal o los conductores necesiten reportar un problema de la app.'], '10-reports-settings.jpg']
+];
+
 function renderGuide({ lang, title, subtitle, sections }) {
-  const noteTitle = lang === 'pa' ? 'ਮਹੱਤਵਪੂਰਨ ਨੋਟ' : lang === 'ta' ? 'முக்கிய குறிப்புகள்' : 'Important Notes';
+  const noteTitle = lang === 'pa' ? 'ਮਹੱਤਵਪੂਰਨ ਨੋਟ' : lang === 'ta' ? 'முக்கிய குறிப்புகள்' : lang === 'es' ? 'Notas importantes' : 'Important Notes';
   const noteBody = lang === 'pa'
     ? 'ਹਰ ਕੰਪਨੀ ਦੀ ਜਾਣਕਾਰੀ company-scoped ਹੈ। Billing payment issue ਹੋਣ ਤੇ portal access block ਹੋ ਸਕਦਾ ਹੈ। Super admin approval ਅਤੇ active billing ਦੋਵੇਂ ਲੋੜੀਂਦੇ ਹਨ।'
     : lang === 'ta'
       ? 'ஒவ்வொரு நிறுவனத்தின் தரவும் company-scoped ஆக தனியாக வைக்கப்படும். Billing payment issue இருந்தால் portal access block ஆகலாம். Super admin approval மற்றும் active billing இரண்டும் தேவையானவை.'
+      : lang === 'es'
+        ? 'Cada empresa mantiene sus datos separados por company scope. Si hay un problema de pago, el acceso al portal puede bloquearse. Se requieren aprobación del super admin y facturación activa.'
       : 'Each company keeps its own company-scoped data. If billing has a payment issue, portal access can be blocked. Super admin approval and active billing are both required.';
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${title}</title>${guideCss()}</head><body>
     <header><p>Dispatcher365</p><h1>${title}</h1><p>${subtitle}</p><div class="toc">${sections.map(([id, heading]) => `<a href="#${id}">${heading}</a>`).join('')}</div></header>
@@ -221,7 +236,13 @@ async function main() {
     subtitle: 'நிறுவன பதிவு, dispatch, driver mobile work, customer tracking, billing மற்றும் reports ஆகியவற்றிற்கான படிப்படியான வழிகாட்டி.',
     sections: sectionsTa
   }));
-  console.log(JSON.stringify({ ok: true, output: outDir, guides: ['user-guide.html', 'user-guide-pa.html', 'user-guide-ta.html'] }, null, 2));
+  fs.writeFileSync(path.join(outDir, 'user-guide-es.html'), renderGuide({
+    lang: 'es',
+    title: 'Guía de uso de Dispatcher365',
+    subtitle: 'Guía paso a paso para registro de empresa, dispatch, trabajo móvil del conductor, rastreo de clientes, facturación y reportes.',
+    sections: sectionsEs
+  }));
+  console.log(JSON.stringify({ ok: true, output: outDir, guides: ['user-guide.html', 'user-guide-pa.html', 'user-guide-ta.html', 'user-guide-es.html'] }, null, 2));
 }
 
 main().catch(error => {
