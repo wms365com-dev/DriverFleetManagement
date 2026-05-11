@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "backup": "node scripts/backup-data.js",
+    "backup:verify": "node scripts/verify-backup.js",
+    "restore:dry-run": "node scripts/restore-data.js",
     "qa": "node scripts/qa-playwright.js"
   },
   "dependencies": {

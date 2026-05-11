@@ -472,6 +472,32 @@ function escHtml(value) {
 function bolDate(value) {
   return value ? new Date(value).toLocaleString() : '';
 }
+function renderInspectionHtml(inspection, company, driver, vehicle) {
+  const failed = (inspection.itemResults || []).filter(item => item.result === 'fail');
+  const rows = (inspection.itemResults || []).map(item => `
+    <tr>
+      <td>${escHtml(item.item)}</td>
+      <td>${escHtml(String(item.result || '').toUpperCase())}</td>
+      <td>${escHtml(item.notes || '')}</td>
+    </tr>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8" /><title>Inspection ${escHtml(inspection.id)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;color:#111;margin:24px}.sheet{max-width:900px;margin:auto}.head{display:flex;justify-content:space-between;border-bottom:3px solid #111;padding-bottom:12px;margin-bottom:18px}.brand{font-size:22px;font-weight:800}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.cell{border:1px solid #999;padding:8px;min-height:46px}.label{font-size:10px;text-transform:uppercase;color:#555;display:block;margin-bottom:4px}.value{font-weight:700}table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #999;padding:7px;text-align:left}th{background:#eee}.status{display:inline-block;border:1px solid #111;padding:5px 9px;text-transform:uppercase;font-weight:700}.sig{border:1px solid #111;min-height:74px;padding:8px;margin-top:18px}.muted{color:#666;font-weight:400}@media print{body{margin:0}.sheet{max-width:none}}
+  </style></head><body><main class="sheet">
+    <section class="head"><div><div class="brand">${escHtml(company?.name || 'Dispatcher365')}</div><div>Driver Vehicle Inspection Report</div></div><div class="status">${escHtml(inspection.overallStatus || '')}</div></section>
+    <section class="grid">
+      <div class="cell"><span class="label">Inspection ID</span><div class="value">#${escHtml(inspection.id)}</div></div>
+      <div class="cell"><span class="label">Inspection Time</span><div class="value">${escHtml(bolDate(inspection.inspectionTime))}</div></div>
+      <div class="cell"><span class="label">Odometer</span><div class="value">${Number(inspection.odometer || 0).toLocaleString()}</div></div>
+      <div class="cell"><span class="label">Driver</span><div class="value">${escHtml(`${driver?.firstName || ''} ${driver?.lastName || ''}`.trim())}</div></div>
+      <div class="cell"><span class="label">Vehicle</span><div class="value">${escHtml(vehicle?.unitNumber || '')}</div></div>
+      <div class="cell"><span class="label">Failed Items</span><div class="value">${failed.length}</div></div>
+    </section>
+    <table><thead><tr><th>Item</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>
+    <section class="sig"><span class="label">Driver Electronic Certification</span><div class="value">${escHtml(inspection.signatureName || `${driver?.firstName || ''} ${driver?.lastName || ''}`.trim())}</div><div class="muted">Signed ${escHtml(bolDate(inspection.signedAt || inspection.inspectionTime))}</div><p class="muted">I certify this inspection was completed and reported accurately.</p></section>
+    ${inspection.notes ? `<p><strong>General notes:</strong> ${escHtml(inspection.notes)}</p>` : ''}
+  </main></body></html>`;
+}
 function loadDocumentSignatures(load) {
   return (load.documents || []).filter(doc => String(doc.type || '').toLowerCase() === 'signature');
 }
@@ -912,6 +938,25 @@ app.get('/api/inspections', auth, requireCompanyScope, requireDriverProfile, asy
   if (isDriver(req)) return res.json(inspections.filter(i => Number(i.driverId) === Number(req.sessionUser.linkedDriverId)));
   res.json(inspections);
 });
+app.get('/inspection/:id', auth, requireCompanyScope, requireDriverProfile, async (req, res) => {
+  try {
+    const [inspections, companies, drivers, vehicles] = await Promise.all([
+      db.getInspections(req.companyId),
+      db.getCompanies(),
+      db.getDrivers(req.companyId),
+      db.getVehicles(req.companyId)
+    ]);
+    const inspection = inspections.find(i => Number(i.id) === Number(req.params.id));
+    if (!inspection) return res.status(404).send('Inspection not found');
+    if (isDriver(req) && Number(inspection.driverId) !== Number(req.sessionUser.linkedDriverId)) return res.status(403).send('Drivers can only view their own inspections');
+    const company = companies.find(c => Number(c.id) === Number(req.companyId));
+    const driver = drivers.find(d => Number(d.id) === Number(inspection.driverId));
+    const vehicle = vehicles.find(v => Number(v.id) === Number(inspection.vehicleId));
+    res.type('html').send(renderInspectionHtml(inspection, company, driver, vehicle));
+  } catch (error) {
+    res.status(400).send(error.message || 'Unable to generate inspection report');
+  }
+});
 app.post('/api/inspections', auth, requireCompanyScope, requireDriverProfile, upload.array('photos', 8), async (req, res) => {
   try {
     const itemResults = parseInspectionItems(req.body.itemResults);
@@ -931,7 +976,9 @@ app.post('/api/inspections', auth, requireCompanyScope, requireDriverProfile, up
       overallStatus: hasFailedItem && req.body.overallStatus === 'pass' ? 'pass_with_defects' : (req.body.overallStatus || 'pass'),
       notes: req.body.notes || '',
       itemResults,
-      photos
+      photos,
+      signatureName: `${req.sessionUser.firstName || ''} ${req.sessionUser.lastName || ''}`.trim() || req.sessionUser.email,
+      signatureDataUrl: String(req.body.signatureDataUrl || '')
     });
 
     if (issueFlag) {
@@ -1022,7 +1069,19 @@ app.post('/api/issues', auth, requireCompanyScope, requireDriverProfile, upload.
 app.patch('/api/issues/:id', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
     const issue = await db.updateIssue(req.companyId, Number(req.params.id), req.body.status, req.body.resolutionNotes);
-    if (issue.status === 'closed' && issue.vehicleId) await db.updateVehicleStatus(req.companyId, issue.vehicleId, 'active');
+    if (issue.status === 'closed' && issue.vehicleId) {
+      const remaining = (await db.getIssues(req.companyId)).filter(item => item.status !== 'closed' && Number(item.vehicleId) === Number(issue.vehicleId));
+      if (!remaining.length) await db.updateVehicleStatus(req.companyId, issue.vehicleId, 'active');
+    }
+    await notify(req.companyId, {
+      audience: 'staff',
+      type: 'maintenance_issue',
+      severity: issue.status === 'closed' ? 'success' : 'warning',
+      title: `Defect ${issue.status === 'closed' ? 'closed' : 'updated'}`,
+      message: req.body.resolutionNotes || issue.description || 'Maintenance issue updated.',
+      link: '#maintenance',
+      metadata: { issueId: issue.id, vehicleId: issue.vehicleId, status: issue.status }
+    });
     res.json(issue);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1292,6 +1351,27 @@ app.get('/api/notifications', auth, requireCompanyScope, async (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to load notifications' });
   }
+});
+app.get('/api/notification-settings', auth, staffOnly, requireCompanyScope, async (_req, res) => {
+  res.json({
+    email: {
+      configured: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER),
+      provider: process.env.SMTP_HOST ? 'SMTP' : 'Not configured',
+      requiredEnv: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM']
+    },
+    sms: {
+      configured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
+      provider: process.env.TWILIO_ACCOUNT_SID ? 'Twilio' : 'Not configured',
+      requiredEnv: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM']
+    },
+    rules: [
+      'Driver assigned a load',
+      'Pickup or delivery status changed',
+      'POD/BOL document uploaded',
+      'Maintenance defect opened or closed',
+      'New company signup requires super admin approval'
+    ]
+  });
 });
 app.patch('/api/notifications/:id/read', auth, requireCompanyScope, async (req, res) => {
   try {

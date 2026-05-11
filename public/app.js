@@ -13,6 +13,7 @@ const state = {
   addresses: [],
   bugReports: [],
   notifications: [],
+  notificationSettings: null,
   selectedCompanyId: null,
   selectedDriverId: null,
   activeView: null,
@@ -1567,6 +1568,14 @@ function renderDispatchBoard() {
   const active = activeLoads();
   const unassigned = active.filter(load => !load.driverId);
   const assigned = active.filter(load => load.driverId);
+  const days = [...Array(7)].map((_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+    const key = date.toISOString().slice(0, 10);
+    const loads = active.filter(load => String(load.pickupAppointment || load.deliveryAppointment || '').slice(0, 10) === key);
+    return { key, label: index === 0 ? 'Today' : date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), loads };
+  });
   const movingStatuses = ['en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery'];
   const moving = assigned.filter(load => movingStatuses.includes(load.status));
   const scheduled = assigned.filter(load => !movingStatuses.includes(load.status));
@@ -1585,6 +1594,13 @@ function renderDispatchBoard() {
       <div class="metric-card glass"><span>Today</span><strong>${columns.find(([key]) => key === 'today')[2].length}</strong></div>
       <div class="metric-card glass"><span>Moving</span><strong>${columns.find(([key]) => key === 'moving')[2].length}</strong></div>
     </div>
+    <div class="dispatch-calendar-strip">
+      ${days.map(day => `<article><strong>${esc(day.label)}</strong><span>${day.loads.length} load${day.loads.length === 1 ? '' : 's'}</span><small>${esc(day.loads.slice(0, 2).map(load => load.loadNumber).join(', ') || 'No scheduled pickups')}</small></article>`).join('')}
+    </div>
+    <section class="unassigned-queue">
+      <div class="panel-head"><h3>Unassigned Loads Queue</h3><p>Loads here need a driver and compatible equipment before dispatch.</p></div>
+      <div class="queue-row">${unassigned.map(load => `<span>${esc(load.loadNumber)}<small>${esc(loadTypeLabel(load.loadType || 'dry_van'))}</small></span>`).join('') || '<p class="tiny">No unassigned loads right now.</p>'}</div>
+    </section>
     <div class="dispatch-board">
       ${columns.map(([key, label, loads]) => `<section class="dispatch-column ${key}">
         <div class="dispatch-column-head"><strong>${esc(label)}</strong><span>${loads.length}</span></div>
@@ -1686,7 +1702,7 @@ function renderInspections() {
       ${listSearch('inspectionList', 'Search driver, vehicle, result, or notes')}
       <div class="inspection-grid" data-filter-list="inspectionList">${state.inspections.map(i => {
         const failed = failedItems(i);
-        return `<article class="inspection-card" data-search="${searchableText(i.id, vehicleName(i.vehicleId), driverName(i.driverId), i.overallStatus, i.notes, failed.map(item => item.item).join(' '))}"><div class="panel-head"><strong>#${esc(i.id)} &middot; ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.inspectionTime)}</p><p>${esc(i.notes || 'No notes.')}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}${failed.length ? ` &middot; Failed: ${failed.map(item => esc(item.item)).join(', ')}` : ''}</div><div class="photo-row">${(i.photos || []).map(p => `<img src="${attr(p.url)}" alt="inspection photo" />`).join('')}</div></article>`;
+        return `<article class="inspection-card" data-search="${searchableText(i.id, vehicleName(i.vehicleId), driverName(i.driverId), i.overallStatus, i.notes, failed.map(item => item.item).join(' '))}"><div class="panel-head"><strong>#${esc(i.id)} &middot; ${vehicleName(i.vehicleId)}</strong>${statusTag(i.overallStatus)}</div><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.inspectionTime)}</p><p>${esc(i.notes || 'No notes.')}</p><div class="tiny">Checklist items: ${(i.itemResults || []).length}${failed.length ? ` &middot; Failed: ${failed.map(item => esc(item.item)).join(', ')}` : ''}</div><div class="load-actions"><a class="btn ghost small-btn" href="/inspection/${attr(i.id)}" target="_blank" rel="noopener">Print Inspection</a></div><div class="photo-row">${(i.photos || []).map(p => `<img src="${attr(p.url)}" alt="inspection photo" />`).join('')}</div></article>`;
       }).join('') || emptyState('No inspections yet', 'Driver inspection submissions will appear here.')}<div data-filter-empty hidden>${emptyState('No matching inspections', 'Try searching by driver, vehicle, or result.')}</div></div>
     </section>`;
 }
@@ -1696,7 +1712,7 @@ function renderIssues() {
     <section class="panel glass">
       <div class="panel-head"><h3>Issue Queue</h3><p>Open and closed defects</p></div>
       ${listSearch('issueList', 'Search vehicle, driver, severity, or description')}
-      <div class="issue-list" data-filter-list="issueList">${state.issues.map(i => `<article class="issue-card" data-search="${searchableText(vehicleName(i.vehicleId), driverName(i.driverId), i.category, i.severity, i.status, i.description)}"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<button class="btn primary small-btn close-issue" data-id="${attr(i.id)}">Mark Closed</button>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}</p>`}</article>`).join('') || emptyState('No issues reported', 'Vehicle defects and driver issue reports will appear here.')}<div data-filter-empty hidden>${emptyState('No matching issues', 'Try another vehicle, driver, severity, or keyword.')}</div></div>
+      <div class="issue-list" data-filter-list="issueList">${state.issues.map(i => `<article class="issue-card" data-search="${searchableText(vehicleName(i.vehicleId), driverName(i.driverId), i.category, i.severity, i.status, i.description)}"><div class="panel-head"><div><strong>${vehicleName(i.vehicleId)}</strong><p class="tiny">${driverName(i.driverId)} &middot; ${fmt(i.createdAt)}</p></div><div class="stack-right">${statusTag(i.severity)}${statusTag(i.status)}</div></div><p>${esc(i.description)}</p>${i.photos?.length ? `<div class="photo-row">${i.photos.map(p => `<img src="${attr(p.url)}" alt="issue photo" />`).join('')}</div>` : ''}${i.status !== 'closed' && isStaffLike() ? `<form class="close-issue-form stack compact" data-id="${attr(i.id)}"><label>Repair / resolution notes<textarea name="resolutionNotes" required placeholder="What was repaired, inspected, or approved?"></textarea></label><button class="btn primary small-btn" type="submit">Close Defect</button></form>` : `<p class="tiny">${i.closedAt ? `Closed ${fmt(i.closedAt)}` : ''}${i.resolutionNotes ? ` &middot; ${esc(i.resolutionNotes)}` : ''}</p>`}</article>`).join('') || emptyState('No issues reported', 'Vehicle defects and driver issue reports will appear here.')}<div data-filter-empty hidden>${emptyState('No matching issues', 'Try another vehicle, driver, severity, or keyword.')}</div></div>
     </section>`;
 }
 
@@ -1912,7 +1928,8 @@ function renderSettings() {
         <div class="panel-head"><h3>Configuration Roadmap</h3><p>Items to make editable in the next pass.</p></div>
         <div class="list-grid">
           <article class="list-card"><strong>Custom checklists</strong><p class="tiny">Per-equipment inspection templates.</p></article>
-          <article class="list-card"><strong>Notification rules</strong><p class="tiny">Late check-ins, failed inspections, and delivery exceptions.</p></article>
+          <article class="list-card"><strong>Notification delivery</strong><p class="tiny">Email: ${state.notificationSettings?.email?.configured ? 'configured' : 'Railway SMTP env needed'} &middot; SMS: ${state.notificationSettings?.sms?.configured ? 'configured' : 'Twilio env needed'}</p></article>
+          <article class="list-card"><strong>Backup and restore</strong><p class="tiny">Run npm run backup, npm run backup:verify, and npm run restore:dry-run against a backup folder before any restore.</p></article>
           <article class="list-card"><strong>Address book management</strong><p class="tiny">Edit, merge, and archive saved locations.</p></article>
         </div>
       </section>
@@ -2184,16 +2201,18 @@ function bindView(view) {
     stopMapRefresh();
   }
   if (view === 'issues') {
-    document.querySelectorAll('.close-issue').forEach(btn => btn.onclick = async () => {
+    document.querySelectorAll('.close-issue-form').forEach(form => form.onsubmit = async e => {
+      e.preventDefault();
       try {
-        await api(`/api/issues/${btn.dataset.id}`, {
+        const fd = new FormData(form);
+        await api(`/api/issues/${form.dataset.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'closed', resolutionNotes: 'Closed from issue queue' })
+          body: JSON.stringify({ status: 'closed', resolutionNotes: fd.get('resolutionNotes') || 'Closed from issue queue' })
         });
         await loadEverything();
         render();
-        setToast('Issue closed', 'success');
+        setToast('Defect closed and maintenance updated', 'success');
       } catch (error) {
         setToast(error.message, 'error');
       }
@@ -2916,6 +2935,7 @@ async function loadEverything() {
     state.addresses = [];
     state.bugReports = [];
     state.notifications = [];
+    state.notificationSettings = null;
     return;
   }
 
@@ -2931,10 +2951,11 @@ async function loadEverything() {
     api('/api/loads'),
     isStaffLike() ? api('/api/addresses') : Promise.resolve([]),
     isStaffLike() ? api('/api/bug-reports') : Promise.resolve([]),
-    api('/api/notifications')
+    api('/api/notifications'),
+    isStaffLike() ? api('/api/notification-settings') : Promise.resolve(null)
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports, notifications] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports, notifications, notificationSettings] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -2947,6 +2968,7 @@ async function loadEverything() {
   state.addresses = addresses;
   state.bugReports = bugReports;
   state.notifications = notifications;
+  state.notificationSettings = notificationSettings;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;
 }
 

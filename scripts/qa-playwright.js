@@ -45,8 +45,10 @@ async function runStep(name, fn) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
   const suffix = Date.now().toString(36).slice(-6);
+  let companyId;
   let adminUser;
   let driverUser;
+  let vehicle;
   let load;
 
   await runStep('Marketing home page', async () => {
@@ -86,13 +88,13 @@ async function runStep(name, fn) {
 
   await runStep('Create company admin, driver, equipment, assignment, and load through API', async () => {
     const companies = await browserJson(page, 'GET', '/api/companies');
-    const companyId = companies.find(c => c.status === 'active')?.id || companies[0]?.id;
+    companyId = companies.find(c => c.status === 'active')?.id || companies[0]?.id;
     expect(companyId, 'No company available for QA setup');
 
     adminUser = await browserJson(page, 'POST', `/api/users?companyId=${companyId}`, { firstName: 'QA', lastName: 'Admin', email: `qa.admin.${suffix}@example.test`, password: 'StrongPass123!', role: 'admin' });
     const driver = await browserJson(page, 'POST', `/api/drivers?companyId=${companyId}`, { firstName: 'QA', lastName: 'Driver', phone: '5555555555', email: `qa.driver.${suffix}@example.test`, licenseClass: 'G', status: 'active', createLogin: true, userPassword: 'StrongPass123!' });
     driverUser = { email: `qa.driver.${suffix}@example.test`, password: 'StrongPass123!', id: driver.id };
-    const vehicle = await browserJson(page, 'POST', `/api/vehicles?companyId=${companyId}`, { unitNumber: `QA-VAN-${suffix}`, type: 'cargo_van', category: 'power_unit', plateNumber: 'QA', make: 'Ford', model: 'Transit', year: 2025, status: 'active' });
+    vehicle = await browserJson(page, 'POST', `/api/vehicles?companyId=${companyId}`, { unitNumber: `QA-VAN-${suffix}`, type: 'cargo_van', category: 'power_unit', plateNumber: 'QA', make: 'Ford', model: 'Transit', year: 2025, status: 'active' });
     await browserJson(page, 'POST', `/api/assignments?companyId=${companyId}`, { driverId: driver.id, vehicleId: vehicle.id });
     load = await browserJson(page, 'POST', `/api/loads?companyId=${companyId}`, {
         loadType: 'sprinter_van',
@@ -122,6 +124,7 @@ async function runStep(name, fn) {
     await page.getByRole('button', { name: 'Dispatch / Loads', exact: true }).click();
     await page.getByRole('heading', { name: 'Dispatch Board' }).waitFor({ timeout: 10000 });
     expect((await page.locator('body').innerText()).includes(load.loadNumber), 'QA load missing from dispatch board');
+    expect(await page.getByText(/Unassigned Loads Queue/i).isVisible(), 'Unassigned loads queue missing from dispatch board');
     expect(await page.getByText(/extra stop/i).first().isVisible(), 'Extra stop summary missing');
     await page.getByRole('button', { name: /Notifications/i }).click();
     await page.getByText(/Notifications/i).first().waitFor({ timeout: 10000 });
@@ -167,6 +170,40 @@ async function runStep(name, fn) {
     await accept.click();
     await mobile.getByText(/Load updated/i).waitFor({ timeout: 10000 });
     await mobile.getByText(/accepted/i).first().waitFor({ timeout: 10000 });
+  });
+
+  await runStep('Inspection report, customer visibility, notification settings, and repair closure', async () => {
+    await page.evaluate(() => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })).catch(() => null);
+    await page.goto(`${baseURL}/portal`, { waitUntil: 'networkidle' });
+    await page.getByLabel('Email').fill(adminUser.email);
+    await page.getByLabel('Password').fill('StrongPass123!');
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByRole('button', { name: /log out/i }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Inspections/i }).click();
+    await page.getByText(vehicle.unitNumber).first().waitFor({ timeout: 10000 });
+    const inspectionLink = page.getByRole('link', { name: /Print Inspection/i }).first();
+    const href = await inspectionLink.getAttribute('href');
+    expect(Boolean(href), 'Printable inspection link missing');
+    const report = await page.request.get(`${baseURL}${href}`);
+    expect(report.ok(), 'Printable inspection report failed');
+    expect((await report.text()).includes('Driver Vehicle Inspection Report'), 'Inspection report title missing');
+
+    await page.getByRole('button', { name: 'Dispatch / Loads', exact: true }).click();
+    await page.locator('body').waitFor({ timeout: 10000 });
+    expect((await page.locator('body').innerText()).includes(load.loadNumber), 'Load missing from dispatch loads page');
+    await browserJson(page, 'PATCH', `/api/loads/${load.id}/customer-visibility?companyId=${companyId}`, { customerEmail: `customer.${suffix}@example.test`, customerPhone: '5555550000', publicDocumentTypes: ['bol', 'pod'] });
+    await page.getByRole('button', { name: /Settings/i }).click();
+    await page.getByText(/Notification delivery/i).waitFor({ timeout: 10000 });
+    await page.getByText(/Backup and restore/i).waitFor({ timeout: 10000 });
+
+    const issue = await browserJson(page, 'POST', `/api/issues?companyId=${companyId}`, { vehicleId: vehicle.id, category: 'safety', severity: 'medium', description: `QA repair closure ${suffix}` });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /log out/i }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Defects \/ Repairs/i }).click();
+    await page.getByText(`QA repair closure ${suffix}`).waitFor({ timeout: 10000 });
+    await page.locator(`.close-issue-form[data-id="${issue.id}"] textarea[name="resolutionNotes"]`).fill('QA repaired and verified safe');
+    await page.locator(`.close-issue-form[data-id="${issue.id}"] button[type="submit"]`).click();
+    await page.getByText(/Defect closed and maintenance updated/i).waitFor({ timeout: 10000 });
   });
 
   await page.screenshot({ path: 'backups/qa-desktop.png', fullPage: true });

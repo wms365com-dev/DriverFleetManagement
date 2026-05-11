@@ -129,6 +129,11 @@ function normalizeFileDb() {
       if (!item.companyId) { item.companyId = seedCompany.id; changed = true; }
     }
   }
+  for (const inspection of db.inspections) {
+    if (!Object.prototype.hasOwnProperty.call(inspection, 'signatureName')) { inspection.signatureName = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(inspection, 'signatureDataUrl')) { inspection.signatureDataUrl = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(inspection, 'signedAt')) { inspection.signedAt = null; changed = true; }
+  }
   for (const load of db.loads) {
     if (!load.companyId) { load.companyId = seedCompany.id; changed = true; }
     if (!Array.isArray(load.events)) { load.events = []; changed = true; }
@@ -232,7 +237,7 @@ function mapShift(r) {
   return { id: r.id, companyId: r.company_id ?? r.companyId, driverId: r.driver_id ?? r.driverId, vehicleId: r.vehicle_id ?? r.vehicleId, startTime: r.start_time || r.startTime, endTime: r.end_time || r.endTime, startOdometer: r.start_odometer ?? r.startOdometer ?? 0, endOdometer: r.end_odometer ?? r.endOdometer ?? null, status: r.status };
 }
 function mapInspection(r) {
-  return { id: r.id, companyId: r.company_id ?? r.companyId, shiftId: r.shift_id ?? r.shiftId, driverId: r.driver_id ?? r.driverId, vehicleId: r.vehicle_id ?? r.vehicleId, inspectionTime: r.inspection_time || r.inspectionTime, odometer: r.odometer, overallStatus: r.overall_status || r.overallStatus, notes: r.notes || '', itemResults: r.item_results || r.itemResults || [], photos: r.photos || [] };
+  return { id: r.id, companyId: r.company_id ?? r.companyId, shiftId: r.shift_id ?? r.shiftId, driverId: r.driver_id ?? r.driverId, vehicleId: r.vehicle_id ?? r.vehicleId, inspectionTime: r.inspection_time || r.inspectionTime, odometer: r.odometer, overallStatus: r.overall_status || r.overallStatus, notes: r.notes || '', itemResults: r.item_results || r.itemResults || [], photos: r.photos || [], signatureName: r.signature_name || r.signatureName || '', signatureDataUrl: r.signature_data_url || r.signatureDataUrl || '', signedAt: r.signed_at || r.signedAt || null };
 }
 function mapIssue(r) {
   return { id: r.id, companyId: r.company_id ?? r.companyId, shiftId: r.shift_id ?? r.shiftId, inspectionId: r.inspection_id ?? r.inspectionId, driverId: r.driver_id ?? r.driverId, vehicleId: r.vehicle_id ?? r.vehicleId, category: r.category || 'other', severity: r.severity || 'low', description: r.description || '', status: r.status, resolutionNotes: r.resolution_notes || r.resolutionNotes || '', createdAt: r.created_at || r.createdAt, closedAt: r.closed_at || r.closedAt || null, photos: r.photos || [] };
@@ -605,6 +610,9 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hazmat_capable BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS customer TEXT`);
   await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await pool.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS signature_name TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS signature_data_url TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS signed_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS contact_name TEXT`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS phone TEXT`);
   await pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS email TEXT`);
@@ -835,7 +843,7 @@ const fileDb = {
     const db = readFileDb();
     if (!db.drivers.find(d => Number(d.companyId) === Number(companyId) && Number(d.id) === Number(payload.driverId))) throw new Error('Driver not found.');
     if (!db.vehicles.find(v => Number(v.companyId) === Number(companyId) && Number(v.id) === Number(payload.vehicleId))) throw new Error('Vehicle not found.');
-    const inspection = { id: nextId(db.inspections), companyId, ...payload, inspectionTime: new Date().toISOString() };
+    const inspection = { id: nextId(db.inspections), companyId, ...payload, inspectionTime: new Date().toISOString(), signedAt: payload.signedAt || new Date().toISOString() };
     db.inspections.push(inspection);
     writeFileDb(db);
     return inspection;
@@ -1175,7 +1183,7 @@ const pgDb = {
     if (!driver.rows[0]) throw new Error('Driver not found.');
     const vehicle = await pool.query('SELECT id FROM vehicles WHERE company_id=$1 AND id=$2', [companyId, payload.vehicleId]);
     if (!vehicle.rows[0]) throw new Error('Vehicle not found.');
-    const r = await pool.query(`INSERT INTO inspections (company_id,shift_id,driver_id,vehicle_id,inspection_time,odometer,overall_status,notes,item_results,photos) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8::jsonb,$9::jsonb) RETURNING *`, [companyId, payload.shiftId || null, payload.driverId, payload.vehicleId, payload.odometer || 0, payload.overallStatus || 'pass', payload.notes || '', JSON.stringify(payload.itemResults || []), JSON.stringify(payload.photos || [])]);
+    const r = await pool.query(`INSERT INTO inspections (company_id,shift_id,driver_id,vehicle_id,inspection_time,odometer,overall_status,notes,item_results,photos,signature_name,signature_data_url,signed_at) VALUES ($1,$2,$3,$4,NOW(),$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,NOW()) RETURNING *`, [companyId, payload.shiftId || null, payload.driverId, payload.vehicleId, payload.odometer || 0, payload.overallStatus || 'pass', payload.notes || '', JSON.stringify(payload.itemResults || []), JSON.stringify(payload.photos || []), payload.signatureName || '', payload.signatureDataUrl || '']);
     return mapInspection(r.rows[0]);
   },
   async getIssues(companyId) { const r = await pool.query('SELECT * FROM issues WHERE company_id=$1 ORDER BY id DESC', [companyId]); return r.rows.map(mapIssue); },
