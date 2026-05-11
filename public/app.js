@@ -1496,8 +1496,8 @@ function renderLoads() {
   const dockOptions = dockTypeOptions.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('');
   const loadTypeSelectOptions = loadTypeOptions.map(([value, label]) => `<option value="${attr(value)}">${esc(label)}</option>`).join('');
   return `
-    <div class="two-col">
-      <section class="panel glass">
+    <div class="two-col dispatch-workspace">
+      <section class="panel glass dispatch-list-panel">
         ${renderDispatchBoard()}
         <div class="panel-head"><h3>Load List</h3><p>${activeLoads().length} active loads</p></div>
         ${listSearch('loadBoard', 'Search load, customer, driver, address, or status')}
@@ -1506,7 +1506,7 @@ function renderLoads() {
           <div data-filter-empty hidden>${emptyState('No matching loads', 'Try another load number, customer, address, or driver.')}</div>
         </div>
       </section>
-      <section class="panel glass">
+      <section class="panel glass dispatch-create-panel">
         <div class="panel-head"><h3>Create Load</h3><p>Use saved customers, locations, and driver assignments to reduce typing.</p></div>
         <form id="loadForm" class="stack compact">
           <div class="form-step"><span>1</span><strong>Load Details</strong></div>
@@ -1639,12 +1639,15 @@ function renderDispatchBoardCard(load) {
     <div class="dispatch-stop"><span>PU</span><p>${esc(load.pickupName || load.pickupAddress || 'Pickup')}<small>${fmt(load.pickupAppointment)}</small></p></div>
     <div class="dispatch-stop"><span>DEL</span><p>${esc(load.deliveryName || load.deliveryAddress || 'Delivery')}<small>${fmt(load.deliveryAppointment)}</small></p></div>
     ${extraStops.length ? `<p class="tiny">${extraStops.length} extra stop${extraStops.length === 1 ? '' : 's'}: ${esc(extraStops.map(stop => stop.name || stop.address || stop.type).join(', '))}</p>` : ''}
-    <form class="dispatch-assign-form stack compact" data-load-assignment="${attr(load.id)}">
-      <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${Number(d.id) === Number(load.driverId) ? 'selected' : ''} ${driverAvailableForLoad(d) || Number(d.id) === Number(load.driverId) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
-      <label>Power<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
-      <label>Trailer<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
-      <div class="load-actions"><button class="btn primary small-btn" type="submit">Assign</button>${load.driverId ? `<button class="btn ghost small-btn unassign-load-btn" type="button" data-load-id="${attr(load.id)}">Unassign</button>` : ''}</div>
-    </form>
+    <details class="dispatch-assign-details">
+      <summary>${load.driverId ? 'Change assignment' : 'Assign driver and equipment'}</summary>
+      <form class="dispatch-assign-form stack compact" data-load-assignment="${attr(load.id)}">
+        <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${Number(d.id) === Number(load.driverId) ? 'selected' : ''} ${driverAvailableForLoad(d) || Number(d.id) === Number(load.driverId) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
+        <label>Power<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
+        <label>Trailer<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
+        <div class="load-actions"><button class="btn primary small-btn" type="submit">Assign</button>${load.driverId ? `<button class="btn ghost small-btn unassign-load-btn" type="button" data-load-id="${attr(load.id)}">Unassign</button>` : ''}</div>
+      </form>
+    </details>
   </article>`;
 }
 

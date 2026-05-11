@@ -27,7 +27,7 @@ async function browserJson(page, method, apiPath, data) {
 }
 
 async function screenshot(page, filename) {
-  await page.screenshot({ path: path.join(shotDir, filename), fullPage: true, quality: 82 });
+  await page.screenshot({ path: path.join(shotDir, filename), fullPage: false, quality: 82 });
 }
 
 async function login(page, email, password) {
@@ -98,7 +98,7 @@ function guideCss() {
     header{padding:42px 6vw;background:#07111c;color:#fff}header h1{margin:10px 0 0;font-size:clamp(34px,5vw,58px);line-height:1.05}header p{max-width:920px;color:#c8d4e3;font-size:18px}
     nav{position:sticky;top:0;z-index:2;display:flex;gap:10px;flex-wrap:wrap;padding:14px 6vw;background:#fff;border-bottom:1px solid var(--line)}nav a{color:var(--brand);font-weight:700;text-decoration:none}
     main{padding:30px 6vw 70px}.section{margin:0 0 28px;padding:24px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 14px 35px rgba(8,16,24,.06)}
-    h2{margin:0 0 8px;font-size:30px}.meta{color:var(--muted);margin-top:0}.steps{display:grid;gap:8px;margin:16px 0}.steps li{padding-left:4px}.shot{margin-top:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#eef3f8}.shot img{display:block;width:100%;height:auto}.note{padding:14px;border-left:4px solid var(--brand);background:#eef6ff;border-radius:10px;color:#243242}
+    h2{margin:0 0 8px;font-size:30px}.meta{color:var(--muted);margin-top:0}.steps{display:grid;gap:8px;margin:16px 0}.steps li{padding-left:4px}.shot{margin-top:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#eef3f8}.shot img{display:block;width:100%;height:auto;max-height:760px;object-fit:contain;background:#07111c}.note{padding:14px;border-left:4px solid var(--brand);background:#eef6ff;border-radius:10px;color:#243242}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.toc{display:grid;gap:8px;margin-top:18px}.toc a{color:#fff;text-decoration:none}
     footer{padding:24px 6vw;color:var(--muted)}@media(max-width:800px){.grid{grid-template-columns:1fr}nav{position:static}}
   </style>`;
