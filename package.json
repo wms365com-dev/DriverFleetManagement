@@ -11,6 +11,7 @@
     "stripe:setup": "node scripts/setup-stripe.js",
     "qa:stripe": "node scripts/qa-stripe-checkout.js",
     "guides:generate": "node scripts/generate-user-guides.js",
+    "guides:pdf": "node scripts/generate-guide-pdfs.js",
     "qa": "node scripts/qa-playwright.js"
   },
   "dependencies": {
