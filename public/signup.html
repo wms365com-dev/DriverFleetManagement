@@ -56,6 +56,14 @@
           <option value="21-75">21-75 units</option>
           <option value="76+">76+ units</option>
         </select></label>
+        <div class="split">
+          <label>Plan<select name="plan">
+            <option value="starter">Starter - $99 base + $10/driver early</option>
+            <option value="operations" selected>Operations - $149 base + $15/driver</option>
+            <option value="pro">Pro - $399 base + $18/driver</option>
+          </select></label>
+          <label>Active drivers<input name="driverQuantity" type="number" min="1" max="500" value="3" /></label>
+        </div>
 
         <div class="soft-rule"></div>
         <div>
@@ -72,6 +80,7 @@
         <label>Confirm password<input name="confirmPassword" type="password" required autocomplete="new-password" minlength="10" /></label>
         <label class="hp-field">Website<input name="website" tabindex="-1" autocomplete="off" /></label>
         <button class="btn primary" type="submit">Create Company Workspace</button>
+        <button class="btn ghost" type="button" id="stripeCheckoutBtn">Pay With Stripe</button>
         <p class="signup-message" id="signupMessage" role="status"></p>
       </form>
     </section>
@@ -90,6 +99,39 @@
 
     const form = document.getElementById('signupForm');
     const message = document.getElementById('signupMessage');
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      message.className = 'signup-message success';
+      message.textContent = 'Payment setup received. Complete the company signup if you have not submitted it yet.';
+    }
+    if (params.get('payment') === 'cancelled') {
+      message.className = 'signup-message error';
+      message.textContent = 'Stripe checkout was cancelled. You can submit the workspace request and return to payment later.';
+    }
+    async function startStripeCheckout() {
+      message.className = 'signup-message';
+      message.textContent = 'Opening secure Stripe checkout...';
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        const res = await fetch('/api/public/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan: data.plan,
+            driverQuantity: data.driverQuantity,
+            email: data.email,
+            companyName: data.companyName
+          })
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Unable to start checkout.');
+        window.location.href = body.url;
+      } catch (error) {
+        message.className = 'signup-message error';
+        message.textContent = error.message;
+      }
+    }
+    document.getElementById('stripeCheckoutBtn').addEventListener('click', startStripeCheckout);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       message.className = 'signup-message';
@@ -110,7 +152,7 @@
         if (!res.ok) throw new Error(body.error || 'Unable to create signup.');
         message.className = 'signup-message success';
         form.reset();
-        message.textContent = body.message || 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved.';
+        message.textContent = body.message || 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved. Use Pay With Stripe to set up billing when ready.';
       } catch (error) {
         message.className = 'signup-message error';
         message.textContent = error.message;

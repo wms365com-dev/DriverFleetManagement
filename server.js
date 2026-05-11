@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const Stripe = require('stripe');
 const db = require('./db');
 const { verifyPassword, createSessionToken } = require('./auth');
 
@@ -19,6 +20,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 8 * 1024 * 1024, files: 8 } });
 const GEOAPIFY_API_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2026-02-25.clover' }) : null;
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -677,9 +679,92 @@ function bugPayload(body, files = []) {
     photos: files.map(file => ({ filename: file.filename, url: `/uploads/${file.filename}` }))
   };
 }
+const stripePricingPlans = {
+  starter: {
+    name: 'Starter',
+    basePriceId: process.env.STRIPE_PRICE_STARTER_BASE,
+    driverPriceId: process.env.STRIPE_PRICE_STARTER_DRIVER,
+    defaultDrivers: 3
+  },
+  operations: {
+    name: 'Operations',
+    basePriceId: process.env.STRIPE_PRICE_OPERATIONS_BASE,
+    driverPriceId: process.env.STRIPE_PRICE_OPERATIONS_DRIVER,
+    defaultDrivers: 10
+  },
+  pro: {
+    name: 'Pro',
+    basePriceId: process.env.STRIPE_PRICE_PRO_BASE,
+    driverPriceId: process.env.STRIPE_PRICE_PRO_DRIVER,
+    defaultDrivers: 25
+  }
+};
+function requestedOrigin(req) {
+  return process.env.PUBLIC_APP_URL || `${req.protocol}://${req.get('host')}`;
+}
+function stripeCheckoutPayload(body) {
+  const planKey = String(body.plan || 'operations').toLowerCase();
+  const plan = stripePricingPlans[planKey];
+  if (!plan) throw new Error('Unknown pricing plan.');
+  if (!plan.basePriceId || !plan.driverPriceId) throw new Error(`Stripe price IDs are not configured for ${plan.name}.`);
+  const driverQuantity = Math.max(1, Math.min(500, Number(body.driverQuantity) || plan.defaultDrivers));
+  return {
+    planKey,
+    plan,
+    driverQuantity,
+    customerEmail: String(body.email || '').trim().toLowerCase(),
+    companyName: String(body.companyName || '').trim()
+  };
+}
 
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, postgres: !!process.env.DATABASE_URL, uploadsDir: UPLOADS_DIR, superUserConfigured: await db.hasAdminSetup() });
+});
+
+app.get('/api/public/billing-config', (_req, res) => {
+  res.json({
+    stripeConfigured: Boolean(stripe),
+    plans: Object.fromEntries(Object.entries(stripePricingPlans).map(([key, plan]) => [key, {
+      name: plan.name,
+      configured: Boolean(plan.basePriceId && plan.driverPriceId),
+      defaultDrivers: plan.defaultDrivers
+    }]))
+  });
+});
+
+app.post('/api/public/create-checkout-session', async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Stripe is not configured yet. Add STRIPE_SECRET_KEY and Price IDs in Railway.' });
+    const payload = stripeCheckoutPayload(req.body);
+    const origin = requestedOrigin(req);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: payload.customerEmail || undefined,
+      client_reference_id: payload.companyName || undefined,
+      line_items: [
+        { price: payload.plan.basePriceId, quantity: 1 },
+        { price: payload.plan.driverPriceId, quantity: payload.driverQuantity }
+      ],
+      allow_promotion_codes: true,
+      subscription_data: {
+        metadata: {
+          plan: payload.planKey,
+          companyName: payload.companyName,
+          driverQuantity: String(payload.driverQuantity)
+        }
+      },
+      metadata: {
+        plan: payload.planKey,
+        companyName: payload.companyName,
+        driverQuantity: String(payload.driverQuantity)
+      },
+      success_url: process.env.STRIPE_SUCCESS_URL || `${origin}/signup?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: process.env.STRIPE_CANCEL_URL || `${origin}/signup?payment=cancelled`
+    });
+    res.json({ ok: true, url: session.url });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to start Stripe checkout.' });
+  }
 });
 
 app.post('/api/public/signup', async (req, res) => {

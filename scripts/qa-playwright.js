@@ -56,6 +56,22 @@ async function runStep(name, fn) {
     await page.getByRole('link', { name: /sign up/i }).first().waitFor({ timeout: 10000 });
     expect(await page.getByText('Dispatch Software').first().isVisible(), 'Marketing value prop missing');
     expect(await page.getByRole('link', { name: /shipment tracking/i }).first().isVisible(), 'Tracking link missing');
+    expect(await page.getByRole('heading', { name: /Start with a company workspace/i }).isVisible(), 'Pricing section missing');
+  });
+
+  await runStep('Public Stripe billing config', async () => {
+    const config = await json(await page.request.get(`${baseURL}/api/public/billing-config`));
+    expect(Object.prototype.hasOwnProperty.call(config, 'stripeConfigured'), 'Stripe billing config missing configured flag');
+    expect(config.plans?.operations?.name === 'Operations', 'Operations billing plan missing');
+    const checkout = await page.request.post(`${baseURL}/api/public/create-checkout-session`, {
+      data: { plan: 'operations', driverQuantity: 3, email: `billing.${suffix}@example.test`, companyName: `Billing QA ${suffix}` }
+    });
+    if (!config.stripeConfigured) {
+      expect(checkout.status() === 503, 'Unconfigured Stripe checkout should return 503');
+    } else {
+      const body = await json(checkout);
+      expect(/^https:\/\/checkout\.stripe\.com\//.test(body.url || ''), 'Stripe checkout URL missing');
+    }
   });
 
   await runStep('Public signup submission', async () => {

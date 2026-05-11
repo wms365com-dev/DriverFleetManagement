@@ -103,6 +103,7 @@
       <a href="#features">Features</a>
       <a href="#workflow">Workflow</a>
       <a href="#roles">Roles</a>
+      <a href="#pricing">Pricing</a>
       <a href="#faq">FAQ</a>
       <a class="marketing-track" href="/tracking">Shipment Tracking</a>
       <a href="/signup">Sign Up</a>
@@ -197,6 +198,54 @@
       </div>
     </section>
 
+    <section id="pricing" class="marketing-section pricing-section">
+      <div class="section-heading">
+        <p class="eyebrow">Simple pricing</p>
+        <h2>Start with a company workspace, then pay only for active drivers.</h2>
+      </div>
+      <div class="pricing-grid">
+        <article class="pricing-card">
+          <span>Starter</span>
+          <strong>$99<span>/month base</span></strong>
+          <p>For 1-5 trucks getting off spreadsheets.</p>
+          <ul>
+            <li>$10 per active driver/month early customer rate</li>
+            <li>Dispatch board and load tracking</li>
+            <li>Driver inspections and POD/BOL upload</li>
+            <li>Public customer tracking links</li>
+          </ul>
+          <button class="btn primary stripe-checkout-btn" type="button" data-plan="starter" data-drivers="3">Start Starter</button>
+        </article>
+        <article class="pricing-card featured">
+          <small>Recommended</small>
+          <span>Operations</span>
+          <strong>$149<span>/month base</span></strong>
+          <p>For growing fleets that need daily dispatch control.</p>
+          <ul>
+            <li>$15 per active driver/month</li>
+            <li>Everything in Starter</li>
+            <li>Extra stops, saved locations, customer visibility</li>
+            <li>Defect repair queue and printable inspections</li>
+          </ul>
+          <button class="btn primary stripe-checkout-btn" type="button" data-plan="operations" data-drivers="10">Start Operations</button>
+        </article>
+        <article class="pricing-card">
+          <span>Pro</span>
+          <strong>$399<span>/month base</span></strong>
+          <p>For larger teams needing deeper controls and reporting.</p>
+          <ul>
+            <li>$18 per active driver/month</li>
+            <li>Advanced operational reporting path</li>
+            <li>Priority setup and configuration support</li>
+            <li>Custom branding options available</li>
+          </ul>
+          <button class="btn primary stripe-checkout-btn" type="button" data-plan="pro" data-drivers="25">Start Pro</button>
+        </article>
+      </div>
+      <p class="pricing-note">Dispatcher, admin, and office users are included. Optional GPS, SMS, branded tracking, and advanced reporting modules can be added later.</p>
+      <p class="signup-message" id="checkoutMessage" role="status"></p>
+    </section>
+
     <section id="faq" class="workflow-band">
       <div class="section-heading">
         <p class="eyebrow">Fleet dispatch software FAQ</p>
@@ -230,6 +279,33 @@
   <script>
     document.querySelectorAll('[data-current-year]').forEach(element => {
       element.textContent = new Date().getFullYear();
+    });
+    document.querySelectorAll('.stripe-checkout-btn').forEach(button => {
+      button.addEventListener('click', async () => {
+        const message = document.getElementById('checkoutMessage');
+        if (message) {
+          message.className = 'signup-message';
+          message.textContent = 'Opening secure Stripe checkout...';
+        }
+        try {
+          const res = await fetch('/api/public/create-checkout-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              plan: button.dataset.plan,
+              driverQuantity: button.dataset.drivers
+            })
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.error || 'Unable to start checkout.');
+          window.location.href = body.url;
+        } catch (error) {
+          if (message) {
+            message.className = 'signup-message error';
+            message.textContent = error.message;
+          }
+        }
+      });
     });
   </script>
 </body>
