@@ -1093,8 +1093,8 @@ function renderDispatchHome() {
 function renderCompanies() {
   const pendingCount = state.companies.filter(c => c.status === 'pending').length;
   return `
-    <div class="two-col">
-      <section class="panel glass">
+    <div class="two-col admin-workspace">
+      <section class="panel glass admin-list-panel">
         <div class="panel-head"><h3>Companies</h3><p>${pendingCount} pending approval${pendingCount === 1 ? '' : 's'}</p></div>
         ${listSearch('companyList', 'Search company or code')}
         <div class="table-wrap"><table><thead><tr><th>Company</th><th>Company ID</th><th>Status</th><th>Billing</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
@@ -1102,7 +1102,7 @@ function renderCompanies() {
           <tr data-filter-empty hidden><td colspan="5">No matching companies.</td></tr>
         </tbody></table></div>
       </section>
-      <section class="panel glass">
+      <section class="panel glass admin-form-panel">
         <div class="panel-head"><h3>Create Company</h3><p>Set up a company and its first admin user</p></div>
         <form id="companyForm" class="stack compact">
           <label>Company name<input name="name" required /></label>
@@ -1123,8 +1123,8 @@ function renderUsers() {
     return `<section class="panel glass"><h3>Select a company first</h3><p class="subtle">Use the company picker in the sidebar to manage users for that company.</p></section>`;
   }
   return `
-    <div class="two-col">
-      <section class="panel glass">
+    <div class="two-col admin-workspace">
+      <section class="panel glass admin-list-panel">
         <div class="panel-head"><h3>Company Users</h3><p>Admin and dispatcher accounts for this company</p></div>
         ${listSearch('userList', 'Search name, email, or role')}
         <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody data-filter-list="userList">
@@ -1132,7 +1132,7 @@ function renderUsers() {
           <tr data-filter-empty hidden><td colspan="3">No matching users.</td></tr>
         </tbody></table></div>
       </section>
-      <section class="panel glass">
+      <section class="panel glass admin-form-panel">
         <div class="panel-head"><h3>Add User</h3><p>Create an admin or dispatcher login</p></div>
         <form id="userForm" class="stack compact">
           <div class="split"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
@@ -1508,44 +1508,67 @@ function renderLoads() {
       </section>
       <section class="panel glass dispatch-create-panel">
         <div class="panel-head"><h3>Create Load</h3><p>Use saved customers, locations, and driver assignments to reduce typing.</p></div>
-        <form id="loadForm" class="stack compact">
-          <div class="form-step"><span>1</span><strong>Load Details</strong></div>
-          <div class="split"><label>Tracking / Load #<input name="loadNumber" placeholder="Auto: ${attr(getCurrentCompany()?.code || 'COMPANY')}-${new Date().getFullYear()}-000001" /></label><label>Reference<input name="referenceNumber" /></label></div>
-          <div class="split"><label>Customer<input name="customer" list="customerNames" placeholder="Start typing saved customer" /></label><label>Broker<input name="broker" /></label></div>
-          <label>Load type<select name="loadType" id="loadTypeSelect">${loadTypeSelectOptions}</select></label>
-          <div class="compatibility-note" id="loadTypeSummary">${esc(loadTypeRuleSummary('dry_van'))}</div>
-          ${renderLoadTypeFields()}
-          <div class="form-step"><span>2</span><strong>Stops</strong></div>
-          <label>Saved pickup location<select data-location-select="pickup"><option value="">Choose saved pickup</option>${pickupLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
-          <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
-          <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" data-address-type="pickup" /></label>
-          <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
-          <div class="split"><label>Pickup operations hours<input name="pickupHours" placeholder="Mon-Fri 7-3" /></label><label>Pickup dock / tailgate<select name="pickupDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
-          <div class="split"><label>Pickup contact<input name="pickupContactName" /></label><label>Pickup phone<input name="pickupPhone" /></label></div>
-          <label>Pickup site notes<textarea name="pickupSiteNotes" placeholder="Check-in process, gate code, door, buzzer, loading notes"></textarea></label>
-          <label>Saved delivery location<select data-location-select="delivery"><option value="">Choose saved delivery</option>${deliveryLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
-          <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
-          <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" data-address-type="delivery" /></label>
-          <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
-          <div class="split"><label>Delivery operations hours<input name="deliveryHours" placeholder="Mon-Fri 7-3" /></label><label>Delivery dock / tailgate<select name="deliveryDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
-          <div class="split"><label>Delivery contact<input name="deliveryContactName" /></label><label>Delivery phone<input name="deliveryPhone" /></label></div>
-          <label>Delivery site notes<textarea name="deliverySiteNotes" placeholder="Receiving process, gate code, door, buzzer, unloading notes"></textarea></label>
-          <div class="extra-stops-panel">
-            <div class="card-row"><div><strong>Extra Stops</strong><p class="tiny">Add multiple deliveries or additional pickups on the same load.</p></div><button class="btn ghost small-btn" type="button" id="addExtraStopBtn">Add Stop</button></div>
-            <div id="extraStopsList" class="extra-stops-list"></div>
-            <input type="hidden" name="extraStops" id="extraStopsPayload" value="[]" />
+        <form id="loadForm" class="stack compact load-wizard">
+          <div class="wizard-rail" aria-label="Create load steps">
+            <span>Load</span><span>Stops</span><span>Freight</span><span>Assign</span><span>Review</span>
           </div>
-          <div class="form-step"><span>3</span><strong>Freight and Assignment</strong></div>
-          <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
-          <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
-          <div class="split"><label class="inline-check"><input type="checkbox" name="hazmatRequired" value="true" /> Hazmat required</label><label class="inline-check"><input type="checkbox" name="temperatureControlled" value="true" /> Temperature controlled</label></div>
-          <label class="inline-check"><input type="checkbox" name="generalLiftgateRequired" value="true" /> Liftgate required</label>
-          <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${driverAvailableForLoad(d) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
-          <label>Power unit<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
-          <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
-          <div class="compatibility-note" id="equipmentCompatibilityHint">Choose a load type to see compatible equipment.</div>
-          <label>Notes<textarea name="notes"></textarea></label>
-          <button class="btn primary" type="submit">Create Load</button>
+          <section class="wizard-step-card">
+            <div class="form-step"><span>1</span><strong>Load Details</strong></div>
+            <div class="split"><label>Tracking / Load #<input name="loadNumber" placeholder="Auto: ${attr(getCurrentCompany()?.code || 'COMPANY')}-${new Date().getFullYear()}-000001" /></label><label>Reference<input name="referenceNumber" /></label></div>
+            <div class="split"><label>Customer<input name="customer" list="customerNames" placeholder="Start typing saved customer" /></label><label>Broker<input name="broker" /></label></div>
+            <label>Load type<select name="loadType" id="loadTypeSelect">${loadTypeSelectOptions}</select></label>
+            <div class="compatibility-note" id="loadTypeSummary">${esc(loadTypeRuleSummary('dry_van'))}</div>
+            ${renderLoadTypeFields()}
+          </section>
+          <section class="wizard-step-card">
+            <div class="form-step"><span>2</span><strong>Stops</strong></div>
+            <div class="stop-entry-grid">
+              <div class="stop-entry-card">
+                <strong>Pickup</strong>
+                <label>Saved pickup location<select data-location-select="pickup"><option value="">Choose saved pickup</option>${pickupLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
+                <label>Pickup name<input name="pickupName" data-address-name="pickupAddress" /></label>
+                <label>Pickup address<input name="pickupAddress" list="pickupAddresses" autocomplete="street-address" data-address-input="pickupName" data-address-type="pickup" /></label>
+                <label>Pickup appointment<input name="pickupAppointment" type="datetime-local" /></label>
+                <div class="split"><label>Operations hours<input name="pickupHours" placeholder="Mon-Fri 7-3" /></label><label>Dock / tailgate<select name="pickupDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
+                <div class="split"><label>Contact<input name="pickupContactName" /></label><label>Phone<input name="pickupPhone" /></label></div>
+                <label>Site notes<textarea name="pickupSiteNotes" placeholder="Check-in process, gate code, door, buzzer, loading notes"></textarea></label>
+              </div>
+              <div class="stop-entry-card">
+                <strong>Delivery</strong>
+                <label>Saved delivery location<select data-location-select="delivery"><option value="">Choose saved delivery</option>${deliveryLocations.map(item => `<option value="${attr(item.address)}">${esc(locationLabel(item))}</option>`).join('')}</select></label>
+                <label>Delivery name<input name="deliveryName" data-address-name="deliveryAddress" /></label>
+                <label>Delivery address<input name="deliveryAddress" list="deliveryAddresses" autocomplete="street-address" data-address-input="deliveryName" data-address-type="delivery" /></label>
+                <label>Delivery appointment<input name="deliveryAppointment" type="datetime-local" /></label>
+                <div class="split"><label>Operations hours<input name="deliveryHours" placeholder="Mon-Fri 7-3" /></label><label>Dock / tailgate<select name="deliveryDockType"><option value="">Select dock setup</option>${dockOptions}</select></label></div>
+                <div class="split"><label>Contact<input name="deliveryContactName" /></label><label>Phone<input name="deliveryPhone" /></label></div>
+                <label>Site notes<textarea name="deliverySiteNotes" placeholder="Receiving process, gate code, door, buzzer, unloading notes"></textarea></label>
+              </div>
+            </div>
+            <div class="extra-stops-panel">
+              <div class="card-row"><div><strong>Extra Stops</strong><p class="tiny">Add multiple deliveries or additional pickups on the same load.</p></div><button class="btn ghost small-btn" type="button" id="addExtraStopBtn">Add Stop</button></div>
+              <div id="extraStopsList" class="extra-stops-list"></div>
+              <input type="hidden" name="extraStops" id="extraStopsPayload" value="[]" />
+            </div>
+          </section>
+          <section class="wizard-step-card">
+            <div class="form-step"><span>3</span><strong>Freight</strong></div>
+            <div class="split"><label>Commodity<input name="commodity" /></label><label>Weight<input name="weight" type="number" /></label></div>
+            <div class="split"><label>Pieces / pallets<input name="pieces" /></label><label>Rate<input name="rate" /></label></div>
+            <div class="split"><label class="inline-check"><input type="checkbox" name="hazmatRequired" value="true" /> Hazmat required</label><label class="inline-check"><input type="checkbox" name="temperatureControlled" value="true" /> Temperature controlled</label></div>
+            <label class="inline-check"><input type="checkbox" name="generalLiftgateRequired" value="true" /> Liftgate required</label>
+          </section>
+          <section class="wizard-step-card">
+            <div class="form-step"><span>4</span><strong>Assignment</strong></div>
+            <label>Driver<select name="driverId"><option value="">Unassigned</option>${state.drivers.map(d => `<option value="${attr(d.id)}" ${driverAvailableForLoad(d) ? '' : 'disabled'}>${esc(driverOptionLabel(d))}</option>`).join('')}</select></label>
+            <label>Power unit<select name="vehicleId"><option value="">Unassigned</option>${powerOptions}</select></label>
+            <label>Trailer / equipment<select name="trailerId"><option value="">None</option>${trailerOptions}</select></label>
+            <div class="compatibility-note" id="equipmentCompatibilityHint">Choose a load type to see compatible equipment.</div>
+          </section>
+          <section class="wizard-step-card">
+            <div class="form-step"><span>5</span><strong>Review and Create</strong></div>
+            <label>Notes<textarea name="notes"></textarea></label>
+            <button class="btn primary" type="submit">Create Load</button>
+          </section>
           <datalist id="customerNames">${customers.map(name => `<option value="${attr(name)}"></option>`).join('')}</datalist>
           ${renderAddressDatalist('pickupAddresses', 'pickup')}
           ${renderAddressDatalist('deliveryAddresses', 'delivery')}
@@ -1665,26 +1688,32 @@ function renderLoadCard(load, dispatcher = false) {
   const mailHref = trackingUrl ? `mailto:${attr(load.loadDetails?.customerEmail || '')}?subject=${encodeURIComponent(`Tracking ${load.loadNumber}`)}&body=${shareText}` : '';
   const smsHref = trackingUrl ? `sms:${attr(load.loadDetails?.customerPhone || '')}?&body=${shareText}` : '';
   const detailText = load.loadDetails ? Object.entries(load.loadDetails).filter(([key, value]) => value && !['publicDocumentTypes', 'customerEmail', 'customerPhone'].includes(key) && !Array.isArray(value) && typeof value !== 'object').slice(0, 4).map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1')}: ${value}`).join(' · ') : '';
-  return `<article class="load-card" data-search="${searchableText(load.loadNumber, load.loadType, detailText, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
-    <div class="card-row"><div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>${loadStatusTag(load)}</div>
-    <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
-    <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
-    ${extraStops.length ? `<div class="extra-stop-summary"><strong>${extraStops.length} extra stop${extraStops.length === 1 ? '' : 's'}</strong>${extraStops.map((stop, index) => `<div><span>${esc((stop.type || 'stop').toUpperCase())} ${index + 1}</span><p>${esc(stop.name || stop.address || 'Extra stop')} ${stop.appointment ? `&middot; ${fmt(stop.appointment)}` : ''}</p><small>${esc(stop.address || '')}</small></div>`).join('')}</div>` : ''}
-    <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
-    <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
-    ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
-    ${renderLoadChecklist(load)}
-    ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
-    ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>
+  return `<details class="load-card compact-load-card" data-search="${searchableText(load.loadNumber, load.loadType, detailText, load.customer, load.broker, load.pickupName, load.pickupAddress, pickupDetails, load.deliveryName, load.deliveryAddress, deliveryDetails, load.status, driverName(load.driverId), vehicleName(load.vehicleId), vehicleName(load.trailerId))}">
+    <summary class="load-card-summary">
+      <div><strong>${esc(load.loadNumber)}</strong><p class="tiny">${esc(load.customer || load.broker || 'No customer')} &middot; ${esc(loadTypeLabel(load.loadType || 'dry_van'))}</p></div>
+      <div class="load-card-meta"><span>${esc(load.pickupName || load.pickupAddress || 'Pickup')}</span><span>${esc(load.deliveryName || load.deliveryAddress || 'Delivery')}</span></div>
+      ${loadStatusTag(load)}
+    </summary>
+    <div class="load-card-body">
+      <div class="load-stop"><span>PU</span><div><strong>${esc(load.pickupName || 'Pickup')}</strong><p>${esc(load.pickupAddress || '')}</p><p class="tiny">${fmt(load.pickupAppointment)}</p>${pickupDetails ? `<p class="site-detail">${esc(pickupDetails)}</p>` : ''}</div></div>
+      <div class="load-stop"><span>DEL</span><div><strong>${esc(load.deliveryName || 'Delivery')}</strong><p>${esc(load.deliveryAddress || '')}</p><p class="tiny">${fmt(load.deliveryAppointment)}</p>${deliveryDetails ? `<p class="site-detail">${esc(deliveryDetails)}</p>` : ''}</div></div>
+      ${extraStops.length ? `<div class="extra-stop-summary"><strong>${extraStops.length} extra stop${extraStops.length === 1 ? '' : 's'}</strong>${extraStops.map((stop, index) => `<div><span>${esc((stop.type || 'stop').toUpperCase())} ${index + 1}</span><p>${esc(stop.name || stop.address || 'Extra stop')} ${stop.appointment ? `&middot; ${fmt(stop.appointment)}` : ''}</p><small>${esc(stop.address || '')}</small></div>`).join('')}</div>` : ''}
+      <div class="tiny">Driver: ${driverName(load.driverId)} &middot; Truck: ${vehicleName(load.vehicleId)} &middot; Trailer: ${vehicleName(load.trailerId)}</div>
+      <div class="tiny">${esc(load.commodity || 'Commodity not set')}${load.weight ? ` &middot; ${Number(load.weight).toLocaleString()} lb` : ''}${load.pieces ? ` &middot; ${esc(load.pieces)}` : ''}</div>
+      ${detailText ? `<div class="site-detail">${esc(detailText)}</div>` : ''}
+      ${renderLoadChecklist(load)}
+      ${dispatcher ? `<div class="load-actions"><a class="btn ghost small-btn" href="/bol/${attr(load.id)}" target="_blank" rel="noopener">Print VICS BOL</a></div>` : ''}
+      ${dispatcher && trackingUrl ? `<div class="customer-link-row"><input value="${attr(trackingUrl)}" readonly aria-label="Public customer tracking link" /><button class="btn ghost small-btn copy-tracking-link" type="button" data-url="${attr(trackingUrl)}">Copy Customer Link</button></div>
       <form class="customer-visibility-form stack compact" data-load-visibility="${attr(load.id)}">
         <div class="split"><label>Customer email<input name="customerEmail" value="${attr(load.loadDetails?.customerEmail || '')}" placeholder="customer@example.com" /></label><label>Customer phone<input name="customerPhone" value="${attr(load.loadDetails?.customerPhone || '')}" placeholder="+1 555 555 5555" /></label></div>
         <div class="compatibility-note">Public documents visible on tracking page</div>
         <div class="visibility-options">${publicDocOptions}</div>
         <div class="load-actions"><button class="btn ghost small-btn" type="submit">Save Public Visibility</button><a class="btn ghost small-btn" href="${mailHref}">Email Link</a><a class="btn ghost small-btn" href="${smsHref}">SMS Link</a></div>
       </form>` : ''}
-    ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
-    ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
-  </article>`;
+      ${dispatcher ? `<div class="timeline">${(load.events || []).slice(-4).map(event => `<div><strong>${esc(event.status)}</strong><span>${fmt(event.at)}</span><p>${esc(event.note || '')}</p></div>`).join('')}</div>` : ''}
+      ${docs.length ? `<div class="photo-row">${docs.map(doc => `<a class="doc-thumb" href="${attr(doc.url)}" target="_blank" rel="noopener"><img src="${attr(doc.url)}" alt="${attr(doc.type || 'document')}" /><span>${esc(doc.type || 'doc')}</span></a>`).join('')}</div>` : ''}
+    </div>
+  </details>`;
 }
 
 function stopSiteDetails(load, prefix) {
@@ -1859,7 +1888,10 @@ function renderCustomerTracking() {
       <div class="metric-card glass"><span>BOL / POD Files</span><strong>${customerDocs}</strong></div>
     </div>
     <section class="panel glass customer-tracking-panel">
-      <div class="panel-head"><h3>Customer Tracking</h3><p>Monitor customer loads, driver updates, site contacts, and proof documents.</p></div>
+      <div class="customer-portal-hero">
+        <div><p class="eyebrow">Customer Portal</p><h3>Shipment visibility by customer</h3><p>Share tracking links, confirm delivery progress, and control which proof documents customers can see.</p></div>
+        <a class="btn ghost small-btn" href="/tracking" target="_blank" rel="noopener">Open Public Tracking</a>
+      </div>
       ${listSearch('customerTracking', 'Search customer, load, address, driver, or status')}
       <div class="customer-tracking-grid" data-filter-list="customerTracking">
         ${records.map(renderCustomerTrackingCard).join('') || emptyState('No customer activity yet', 'Create loads or save customer locations to begin tracking customer work.')}
@@ -1871,6 +1903,7 @@ function renderCustomerTracking() {
 function renderCustomerTrackingCard(record) {
   const latest = record.latestLoad;
   const recentLoads = [...record.loads].sort((a, b) => String(loadLastActivity(b)).localeCompare(String(loadLastActivity(a)))).slice(0, 4);
+  const trackingUrl = latest ? publicTrackingUrl(latest) : '';
   const search = searchableText(
     record.name,
     record.addresses.map(item => `${item.name} ${item.address} ${item.contactName} ${item.phone}`).join(' '),
@@ -1902,6 +1935,9 @@ function renderCustomerTrackingCard(record) {
         <p class="tiny">${record.drivers.length > 3 ? `${record.drivers.length - 3} more driver(s)` : 'Current load driver coverage'}</p>
       </div>
     </div>
+    ${latest ? `<div class="customer-progress-line">
+      ${['assigned', 'picked_up', 'in_transit', 'delivered', 'pod_uploaded'].map(step => `<span class="${loadProgressReached(latest, step) ? 'done' : ''}">${esc(loadStatusLabel(step))}</span>`).join('')}
+    </div>` : ''}
     <div class="customer-track-stops">
       ${recentLoads.map(load => `<div>
         <span>${esc(load.loadNumber)}</span>
@@ -1913,8 +1949,15 @@ function renderCustomerTrackingCard(record) {
     <div class="customer-contact-strip">
       ${(record.contacts.length ? record.contacts.slice(0, 2) : record.addresses.slice(0, 2)).map(item => `<span>${esc(item.contactName || item.name || 'Site contact')} ${item.phone ? `&middot; ${esc(item.phone)}` : ''}${item.hours ? ` &middot; ${esc(item.hours)}` : ''}</span>`).join('') || '<span>No saved contacts yet</span>'}
     </div>
-    <button class="btn ghost small-btn copy-customer-update" type="button" data-customer="${attr(record.name)}">Copy Customer Update</button>
+    <div class="load-actions"><button class="btn ghost small-btn copy-customer-update" type="button" data-customer="${attr(record.name)}">Copy Customer Update</button>${trackingUrl ? `<a class="btn ghost small-btn" href="${attr(trackingUrl)}" target="_blank" rel="noopener">View Tracking</a>` : ''}</div>
   </article>`;
+}
+
+function loadProgressReached(load, step) {
+  const order = ['new', 'assigned', 'accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery', 'delivered', 'pod_uploaded', 'closed'];
+  const currentIndex = order.indexOf(load.status || 'new');
+  const stepIndex = order.indexOf(step);
+  return stepIndex >= 0 && currentIndex >= stepIndex;
 }
 
 function renderSettings() {
@@ -2087,14 +2130,35 @@ function renderDriverWorkPage() {
   const driver = byId(state.drivers, driverId) || {};
   const driverLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && !['closed', 'cancelled'].includes(load.status));
   const deliveredLoads = state.loads.filter(load => Number(load.driverId) === Number(driverId) && ['delivered', 'pod_uploaded', 'closed'].includes(load.status)).slice(0, 5);
+  const assignment = state.assignments.find(a => a.driverId === driverId && a.active);
+  const vehicle = assignment ? byId(state.vehicles, assignment.vehicleId) : null;
+  const readyInspection = vehicle ? currentVehicleInspection(driverId, vehicle.id) : null;
+  const activeShift = state.shifts.find(s => s.driverId === driverId && s.status === 'started');
+  const primaryLoad = driverLoads.find(load => ['accepted', 'en_route_pickup', 'at_pickup', 'picked_up', 'in_transit', 'at_delivery'].includes(load.status)) || driverLoads[0];
+  const nextStatus = primaryLoad ? nextLoadStatus(primaryLoad) : '';
   return `
     <section class="mobile-stage">
-      <div class="mobile-card primary-card">
-        <div><p class="tiny">Driver</p><strong>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim()) || 'Driver'}</strong></div>
-        <div><p class="tiny">Active work</p><strong>${driverLoads.length}</strong></div>
+      <div class="mobile-card driver-today-card">
+        <div class="driver-today-head">
+          <div><p class="eyebrow">My Work Today</p><h2>${esc(`${driver.firstName || ''} ${driver.lastName || ''}`.trim()) || 'Driver'}</h2></div>
+          ${readyInspection ? statusTag(activeShift ? 'started' : 'ready') : statusTag('inspection required')}
+        </div>
+        <div class="driver-next-action">
+          <span>${vehicle ? esc(vehicle.unitNumber) : 'No vehicle assigned'}</span>
+          <strong>${!readyInspection ? 'Complete inspection before work' : primaryLoad ? `Next: ${esc(loadStatusLabel(nextStatus || primaryLoad.status))}` : 'No active load assigned'}</strong>
+          <p>${primaryLoad ? `${esc(primaryLoad.pickupName || primaryLoad.pickupAddress || 'Pickup')} to ${esc(primaryLoad.deliveryName || primaryLoad.deliveryAddress || 'Delivery')}` : 'Assigned loads will appear here after dispatch sends work.'}</p>
+          <div class="mini-actions">
+            <button class="btn ${readyInspection && primaryLoad ? 'primary' : 'ghost'} small-btn" type="button" data-view-link="${readyInspection && primaryLoad ? 'driverWork' : 'driver'}">${readyInspection && primaryLoad ? 'Continue Work' : 'Start Inspection'}</button>
+          </div>
+        </div>
+        <div class="driver-work-stats">
+          <span><b>${driverLoads.length}</b> active</span>
+          <span><b>${deliveredLoads.length}</b> recent delivered</span>
+          <span><b>${readyInspection ? 'Yes' : 'No'}</b> inspected</span>
+        </div>
       </div>
       <div class="mobile-card stack compact">
-        <div class="panel-head"><h3>Assigned Loads</h3><p>Pickup, delivery, BOL, POD, and check-ins.</p></div>
+        <div class="panel-head"><h3>Assigned Work</h3><p>Pickup, delivery, BOL, POD, and check-ins.</p></div>
         ${driverLoads.map(renderDriverLoadCard).join('') || '<p class="tiny">No active loads assigned.</p>'}
       </div>
       <div class="mobile-card stack compact">
