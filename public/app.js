@@ -415,6 +415,9 @@ function listSearch(id, placeholder = 'Search') {
 function searchableText(...values) {
   return attr(values.filter(value => value !== null && value !== undefined).join(' ').toLowerCase());
 }
+function billingStatusBlocks(company) {
+  return ['incomplete', 'incomplete_expired', 'past_due', 'unpaid', 'canceled', 'cancelled', 'payment_required', 'suspended'].includes(String(company?.billingStatus || 'active').toLowerCase());
+}
 function loadStatusTag(load) {
   return statusTag(load.status || 'new');
 }
@@ -1094,9 +1097,9 @@ function renderCompanies() {
       <section class="panel glass">
         <div class="panel-head"><h3>Companies</h3><p>${pendingCount} pending approval${pendingCount === 1 ? '' : 's'}</p></div>
         ${listSearch('companyList', 'Search company or code')}
-        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Company ID</th><th>Status</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
-          ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status)}"><td>${esc(c.name)}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td><td>${c.status === 'pending' ? `<button class="btn primary small-btn approve-company" data-company-id="${attr(c.id)}">Approve</button>` : c.status === 'active' ? '<span class="tiny">Approved</span>' : `<button class="btn ghost small-btn approve-company" data-company-id="${attr(c.id)}">Reactivate</button>`}</td></tr>`).join('') || '<tr><td colspan="4">No companies yet</td></tr>'}
-          <tr data-filter-empty hidden><td colspan="4">No matching companies.</td></tr>
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Company ID</th><th>Status</th><th>Billing</th><th>Action</th></tr></thead><tbody data-filter-list="companyList">
+          ${state.companies.map(c => `<tr data-search="${searchableText(c.name, c.code, c.status, c.billingStatus, c.billingPlan)}"><td>${esc(c.name)}${c.billingPlan ? `<p class="tiny">${esc(c.billingPlan)}</p>` : ''}</td><td>${esc(c.code || '') || '&mdash;'}</td><td>${statusTag(c.status)}</td><td>${statusTag(c.billingStatus || 'active')}${billingStatusBlocks(c) ? '<p class="tiny">Portal blocked until payment is fixed.</p>' : ''}</td><td>${c.status === 'pending' ? `<button class="btn primary small-btn approve-company" data-company-id="${attr(c.id)}">Approve</button>` : c.status === 'active' ? '<span class="tiny">Approved</span>' : `<button class="btn ghost small-btn approve-company" data-company-id="${attr(c.id)}">Reactivate</button>`}${billingStatusBlocks(c) ? `<button class="btn ghost small-btn mark-billing-active" data-company-id="${attr(c.id)}">Mark Paid</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5">No companies yet</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="5">No matching companies.</td></tr>
         </tbody></table></div>
       </section>
       <section class="panel glass">
@@ -2145,6 +2148,20 @@ function bindView(view) {
         await loadEverything();
         render();
         setToast('Company approved', 'success');
+      } catch (error) {
+        setToast(error.message, 'error');
+      }
+    });
+    document.querySelectorAll('.mark-billing-active').forEach(btn => btn.onclick = async () => {
+      try {
+        await api(`/api/companies/${btn.dataset.companyId}/billing`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ billingStatus: 'active' })
+        });
+        await loadEverything();
+        render();
+        setToast('Billing marked active', 'success');
       } catch (error) {
         setToast(error.message, 'error');
       }

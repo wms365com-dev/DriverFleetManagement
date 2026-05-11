@@ -24,6 +24,17 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).send('Stripe webhook is not configured');
+    const event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+    await handleStripeEvent(event);
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Stripe webhook failed:', error.message);
+    res.status(400).send(`Webhook Error: ${error.message}`);
+  }
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -102,7 +113,7 @@ async function requireCompanyScope(req, res, next) {
   const companyId = await resolveCompanyId(req);
   if (!companyId) return res.status(400).json({ error: 'No company selected' });
   req.companyId = companyId;
-  next();
+  return enforceCompanyBilling(req, res, next);
 }
 async function requireDriverProfile(req, res, next) {
   if (!isDriver(req)) return next();
@@ -175,6 +186,25 @@ async function ensureApprovedCompanyForLogin(user) {
   if (!company || company.status !== 'active') {
     throw new Error('Your company signup is pending super admin approval.');
   }
+  if (!companyBillingAllowsAccess(company)) {
+    throw new Error('Your company subscription needs payment attention. Please update billing to restore portal access.');
+  }
+}
+const billingBlockedStatuses = new Set(['incomplete', 'incomplete_expired', 'past_due', 'unpaid', 'canceled', 'cancelled', 'payment_required', 'suspended']);
+function companyBillingAllowsAccess(company) {
+  return !billingBlockedStatuses.has(String(company?.billingStatus || 'active').toLowerCase());
+}
+async function enforceCompanyBilling(req, res, next) {
+  if (req.sessionUser?.role === 'super_user') return next();
+  const companies = await db.getCompanies();
+  const company = companies.find(c => Number(c.id) === Number(req.companyId));
+  if (!companyBillingAllowsAccess(company)) {
+    return res.status(402).json({
+      error: 'Subscription payment required. Please update billing to restore Dispatcher365 access.',
+      billingStatus: company?.billingStatus || 'payment_required'
+    });
+  }
+  next();
 }
 function parseInspectionItems(raw) {
   const parsed = JSON.parse(raw || '[]');
@@ -713,8 +743,93 @@ function stripeCheckoutPayload(body) {
     plan,
     driverQuantity,
     customerEmail: String(body.email || '').trim().toLowerCase(),
-    companyName: String(body.companyName || '').trim()
+    companyName: String(body.companyName || '').trim(),
+    companyId: Number(body.companyId) || null
   };
+}
+function stripePeriodEnd(subscription) {
+  const unix = subscription?.current_period_end;
+  return unix ? new Date(unix * 1000).toISOString() : null;
+}
+async function findCompanyForStripe({ companyId, customerId, subscriptionId, email, companyName }) {
+  const companies = await db.getCompanies();
+  if (companyId) {
+    const match = companies.find(company => Number(company.id) === Number(companyId));
+    if (match) return match;
+  }
+  if (customerId) {
+    const match = companies.find(company => company.stripeCustomerId === customerId);
+    if (match) return match;
+  }
+  if (subscriptionId) {
+    const match = companies.find(company => company.stripeSubscriptionId === subscriptionId);
+    if (match) return match;
+  }
+  if (email) {
+    const users = await db.getUsers(null);
+    const user = users.find(item => String(item.email || '').toLowerCase() === String(email).toLowerCase());
+    const match = user ? companies.find(company => Number(company.id) === Number(user.companyId)) : null;
+    if (match) return match;
+  }
+  if (companyName) {
+    return companies.find(company => String(company.name || '').toLowerCase() === String(companyName).toLowerCase()) || null;
+  }
+  return null;
+}
+async function updateCompanyFromStripeSubscription(subscription, fallback = {}) {
+  const company = await findCompanyForStripe({
+    companyId: subscription.metadata?.companyId || fallback.companyId,
+    customerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id,
+    subscriptionId: subscription.id,
+    email: fallback.email,
+    companyName: subscription.metadata?.companyName || fallback.companyName
+  });
+  if (!company) return null;
+  return db.updateCompanyBilling(company.id, {
+    billingStatus: subscription.status || fallback.billingStatus || 'active',
+    billingPlan: subscription.metadata?.plan || fallback.plan || company.billingPlan || '',
+    stripeCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id || company.stripeCustomerId || '',
+    stripeSubscriptionId: subscription.id || company.stripeSubscriptionId || '',
+    subscriptionCurrentPeriodEnd: stripePeriodEnd(subscription)
+  });
+}
+async function handleStripeEvent(event) {
+  if (!stripe) return;
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    if (session.mode === 'subscription' && session.subscription) {
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      await updateCompanyFromStripeSubscription(subscription, {
+        companyId: session.metadata?.companyId,
+        email: session.customer_details?.email || session.customer_email,
+        companyName: session.metadata?.companyName,
+        plan: session.metadata?.plan
+      });
+    }
+    return;
+  }
+  if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
+    await updateCompanyFromStripeSubscription(event.data.object);
+    return;
+  }
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object;
+    const company = await findCompanyForStripe({
+      customerId: typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id,
+      subscriptionId: typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id,
+      email: invoice.customer_email
+    });
+    if (company) await db.updateCompanyBilling(company.id, { billingStatus: 'past_due' });
+    return;
+  }
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object;
+    const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await updateCompanyFromStripeSubscription(subscription, { email: invoice.customer_email });
+    }
+  }
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -740,7 +855,7 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: payload.customerEmail || undefined,
-      client_reference_id: payload.companyName || undefined,
+      client_reference_id: payload.companyId ? String(payload.companyId) : payload.companyName || undefined,
       line_items: [
         { price: payload.plan.basePriceId, quantity: 1 },
         { price: payload.plan.driverPriceId, quantity: payload.driverQuantity }
@@ -749,12 +864,14 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
       subscription_data: {
         metadata: {
           plan: payload.planKey,
+          companyId: payload.companyId ? String(payload.companyId) : '',
           companyName: payload.companyName,
           driverQuantity: String(payload.driverQuantity)
         }
       },
       metadata: {
         plan: payload.planKey,
+        companyId: payload.companyId ? String(payload.companyId) : '',
         companyName: payload.companyName,
         driverQuantity: String(payload.driverQuantity)
       },
@@ -777,7 +894,8 @@ app.post('/api/public/signup', async (req, res) => {
     const company = await db.createCompany({
       name: payload.companyName,
       code: companyCodeFromName(payload.companyName),
-      status: 'pending'
+      status: 'pending',
+      billingStatus: 'payment_required'
     });
     await db.createUser({
       companyId: company.id,
@@ -797,7 +915,7 @@ app.post('/api/public/signup', async (req, res) => {
       link: '#companies',
       metadata: { companyId: company.id, companyName: company.name, adminEmail: payload.email }
     });
-    res.json({ ok: true, company, pendingApproval: true, message: 'Your company workspace request has been submitted. Our team will review it and email you once your account is approved.' });
+    res.json({ ok: true, company, pendingApproval: true, message: 'Your company workspace request has been submitted. A super admin must approve the company and billing must be active before login is enabled.' });
   } catch (error) {
     res.status(400).json({ error: publicSignupError(error) });
   }
@@ -871,6 +989,23 @@ app.patch('/api/companies/:id/status', auth, superOnly, async (req, res) => {
     res.json(company);
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to update company status' });
+  }
+});
+app.patch('/api/companies/:id/billing', auth, superOnly, async (req, res) => {
+  try {
+    const allowed = new Set(['active', 'trialing', 'payment_required', 'past_due', 'unpaid', 'canceled', 'suspended']);
+    const billingStatus = String(req.body.billingStatus || '').trim().toLowerCase();
+    if (billingStatus && !allowed.has(billingStatus)) return res.status(400).json({ error: 'Invalid billing status' });
+    const company = await db.updateCompanyBilling(Number(req.params.id), {
+      billingStatus: billingStatus || undefined,
+      billingPlan: req.body.billingPlan,
+      stripeCustomerId: req.body.stripeCustomerId,
+      stripeSubscriptionId: req.body.stripeSubscriptionId,
+      subscriptionCurrentPeriodEnd: req.body.subscriptionCurrentPeriodEnd || null
+    });
+    res.json(company);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to update billing' });
   }
 });
 

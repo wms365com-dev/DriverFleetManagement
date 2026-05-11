@@ -50,6 +50,7 @@ async function runStep(name, fn) {
   let driverUser;
   let vehicle;
   let load;
+  let blockedBillingUser;
 
   await runStep('Marketing home page', async () => {
     await page.goto(`${baseURL}/`, { waitUntil: 'networkidle' });
@@ -95,6 +96,23 @@ async function runStep(name, fn) {
   });
 
   await runStep('Portal login as super admin', async () => {
+    await page.goto(`${baseURL}/portal`, { waitUntil: 'networkidle' });
+    await page.getByLabel('Email').fill(adminEmail);
+    await page.getByLabel('Password').fill(adminPassword);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByRole('button', { name: /log out/i }).waitFor({ timeout: 10000 });
+  });
+
+  await runStep('Payment issue blocks company portal access', async () => {
+    const company = await browserJson(page, 'POST', '/api/companies', { name: `QA Billing Block ${suffix}`, code: `BILL${suffix}`.slice(0, 8), status: 'active', adminEmail: `qa.billing.${suffix}@example.test`, adminPassword: 'StrongPass123!', adminFirstName: 'Billing', adminLastName: 'Blocked' });
+    blockedBillingUser = { email: `qa.billing.${suffix}@example.test`, password: 'StrongPass123!', companyId: company.id };
+    await browserJson(page, 'PATCH', `/api/companies/${company.id}/billing`, { billingStatus: 'past_due', billingPlan: 'operations' });
+    await browserJson(page, 'POST', '/api/auth/logout').catch(() => null);
+    await page.goto(`${baseURL}/portal`, { waitUntil: 'networkidle' });
+    await page.getByLabel('Email').fill(blockedBillingUser.email);
+    await page.getByLabel('Password').fill(blockedBillingUser.password);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByText(/subscription needs payment attention/i).waitFor({ timeout: 10000 });
     await page.goto(`${baseURL}/portal`, { waitUntil: 'networkidle' });
     await page.getByLabel('Email').fill(adminEmail);
     await page.getByLabel('Password').fill(adminPassword);

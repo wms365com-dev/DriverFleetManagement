@@ -90,6 +90,11 @@ function normalizeFileDb() {
   }
   const usedCompanyCodes = new Set();
   for (const company of db.companies) {
+    if (!Object.prototype.hasOwnProperty.call(company, 'billingStatus')) { company.billingStatus = 'active'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(company, 'billingPlan')) { company.billingPlan = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(company, 'stripeCustomerId')) { company.stripeCustomerId = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(company, 'stripeSubscriptionId')) { company.stripeSubscriptionId = ''; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(company, 'subscriptionCurrentPeriodEnd')) { company.subscriptionCurrentPeriodEnd = null; changed = true; }
     const previous = normalizeCompanyCode(company.code || company.name);
     let code = previous;
     let suffix = 1;
@@ -174,7 +179,18 @@ function nextId(items) {
   return items.length ? Math.max(...items.map(i => Number(i.id) || 0)) + 1 : 1;
 }
 function mapCompany(r) {
-  return { id: r.id, name: r.name, code: r.code, status: r.status, createdAt: r.created_at || r.createdAt };
+  return {
+    id: r.id,
+    name: r.name,
+    code: r.code,
+    status: r.status,
+    billingStatus: r.billing_status || r.billingStatus || 'active',
+    billingPlan: r.billing_plan || r.billingPlan || '',
+    stripeCustomerId: r.stripe_customer_id || r.stripeCustomerId || '',
+    stripeSubscriptionId: r.stripe_subscription_id || r.stripeSubscriptionId || '',
+    subscriptionCurrentPeriodEnd: r.subscription_current_period_end || r.subscriptionCurrentPeriodEnd || null,
+    createdAt: r.created_at || r.createdAt
+  };
 }
 function mapUser(r) {
   return {
@@ -393,6 +409,11 @@ async function initPostgres() {
     name TEXT NOT NULL,
     code TEXT UNIQUE,
     status TEXT NOT NULL DEFAULT 'active',
+    billing_status TEXT NOT NULL DEFAULT 'active',
+    billing_plan TEXT,
+    stripe_customer_id TEXT,
+    stripe_subscription_id TEXT,
+    subscription_current_period_end TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE TABLE IF NOT EXISTS users (
@@ -582,6 +603,11 @@ async function initPostgres() {
   );`;
   await pool.query(schema);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'active'`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS billing_plan TEXT`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
@@ -752,7 +778,7 @@ const fileDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const company = { id, name: data.name, code, status: data.status || 'active', createdAt: new Date().toISOString() };
+    const company = { id, name: data.name, code, status: data.status || 'active', billingStatus: data.billingStatus || 'active', billingPlan: data.billingPlan || '', stripeCustomerId: data.stripeCustomerId || '', stripeSubscriptionId: data.stripeSubscriptionId || '', subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null, createdAt: new Date().toISOString() };
     db.companies.push(company);
     writeFileDb(db);
     return company;
@@ -767,6 +793,18 @@ const fileDb = {
         if (Number(user.companyId) === Number(id) && user.role === 'admin') user.isActive = true;
       }
     }
+    writeFileDb(db);
+    return mapCompany(company);
+  },
+  async updateCompanyBilling(id, payload = {}) {
+    const db = readFileDb();
+    const company = db.companies.find(c => Number(c.id) === Number(id));
+    if (!company) throw new Error('Company not found.');
+    if (payload.billingStatus !== undefined) company.billingStatus = payload.billingStatus || company.billingStatus || 'active';
+    if (payload.billingPlan !== undefined) company.billingPlan = payload.billingPlan || '';
+    if (payload.stripeCustomerId !== undefined) company.stripeCustomerId = payload.stripeCustomerId || '';
+    if (payload.stripeSubscriptionId !== undefined) company.stripeSubscriptionId = payload.stripeSubscriptionId || '';
+    if (payload.subscriptionCurrentPeriodEnd !== undefined) company.subscriptionCurrentPeriodEnd = payload.subscriptionCurrentPeriodEnd || null;
     writeFileDb(db);
     return mapCompany(company);
   },
@@ -1100,7 +1138,7 @@ const pgDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const r = await pool.query(`INSERT INTO companies (id,name,code,status) VALUES ($1,$2,$3,$4) RETURNING *`, [id, data.name, code, data.status || 'active']);
+    const r = await pool.query(`INSERT INTO companies (id,name,code,status,billing_status,billing_plan,stripe_customer_id,stripe_subscription_id,subscription_current_period_end) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [id, data.name, code, data.status || 'active', data.billingStatus || 'active', data.billingPlan || '', data.stripeCustomerId || '', data.stripeSubscriptionId || '', data.subscriptionCurrentPeriodEnd || null]);
     return mapCompany(r.rows[0]);
   },
   async updateCompanyStatus(id, status) {
@@ -1118,6 +1156,20 @@ const pgDb = {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
+  },
+  async updateCompanyBilling(id, payload = {}) {
+    const r = await pool.query(
+      `UPDATE companies
+       SET billing_status=COALESCE($2,billing_status),
+           billing_plan=COALESCE($3,billing_plan),
+           stripe_customer_id=COALESCE($4,stripe_customer_id),
+           stripe_subscription_id=COALESCE($5,stripe_subscription_id),
+           subscription_current_period_end=COALESCE($6,subscription_current_period_end)
+       WHERE id=$1 RETURNING *`,
+      [id, payload.billingStatus ?? null, payload.billingPlan ?? null, payload.stripeCustomerId ?? null, payload.stripeSubscriptionId ?? null, payload.subscriptionCurrentPeriodEnd ?? null]
+    );
+    if (!r.rows[0]) throw new Error('Company not found.');
+    return mapCompany(r.rows[0]);
   },
   async getUsers(companyId) {
     const params = [];
