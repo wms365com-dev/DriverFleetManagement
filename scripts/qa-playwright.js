@@ -144,6 +144,29 @@ async function runStep(name, fn) {
     expect(await mobile.getByText(/Ready for work locked/i).isVisible(), 'Driver ready lock missing');
     await mobile.getByRole('button', { name: /Assigned Work/i }).click();
     await mobile.getByText(/Pre-trip inspection required/i).waitFor({ timeout: 10000 });
+    const lockedAccept = mobile.getByRole('button', { name: /^Accept$/ }).first();
+    expect(await lockedAccept.isDisabled(), 'Driver can accept work before inspection');
+  });
+
+  await runStep('Driver mobile inspection, check-in, and assigned work flow', async () => {
+    await mobile.getByRole('button', { name: /Check-In/i }).click();
+    await mobile.locator('#inspectionForm').waitFor({ timeout: 10000 });
+    await mobile.locator('#inspectionForm input[name="odometer"]').fill('123456');
+    await mobile.locator('#inspectionSubmitBtn').click();
+
+    await mobile.locator('#startShiftForm').waitFor({ timeout: 10000 });
+    await mobile.locator('#startShiftForm input[name="startOdometer"]').fill('123456');
+    await mobile.locator('#startShiftBtn').click();
+    await mobile.getByText(/Shift started/i).waitFor({ timeout: 10000 });
+
+    await mobile.getByRole('button', { name: /Assigned Work/i }).click();
+    await mobile.getByText(load.loadNumber).waitFor({ timeout: 10000 });
+    expect(await mobile.getByText(/Pre-trip inspection required before updating this load/i).count() === 0, 'Inspection warning remained after passing inspection');
+    const accept = mobile.getByRole('button', { name: /^Accept$/ }).first();
+    expect(!(await accept.isDisabled()), 'Driver accept button remains disabled after inspection');
+    await accept.click();
+    await mobile.getByText(/Load updated/i).waitFor({ timeout: 10000 });
+    await mobile.getByText(/accepted/i).first().waitFor({ timeout: 10000 });
   });
 
   await page.screenshot({ path: 'backups/qa-desktop.png', fullPage: true });
