@@ -623,7 +623,7 @@ td {
 /* Dispatcher365 marketing front door */
 .marketing-body {
   min-height: 100vh;
-  background: #081018;
+  background: #07111c;
   color: #f6f8fb;
 }
 .marketing-body .btn {
@@ -640,10 +640,13 @@ td {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 16px clamp(18px, 4vw, 56px);
-  border-bottom: 1px solid rgba(169,184,205,.14);
-  background: rgba(8,16,24,.88);
-  backdrop-filter: blur(14px);
+  margin: 14px clamp(12px, 3vw, 34px) 0;
+  padding: 12px clamp(14px, 3vw, 26px);
+  border: 1px solid rgba(169,184,205,.16);
+  border-radius: 18px;
+  background: rgba(8,16,24,.82);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 50px rgba(0,0,0,.24);
 }
 .marketing-brand {
   display: inline-flex;
@@ -653,13 +656,14 @@ td {
   text-decoration: none;
 }
 .marketing-brand span {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  background: #2f7dd1;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1685e5, #22b7ee);
   font-weight: 900;
+  box-shadow: 0 12px 28px rgba(22,133,229,.28);
 }
 .marketing-brand strong {
   font-size: 18px;
@@ -681,18 +685,18 @@ td {
 .marketing-login {
   padding: 10px 14px;
   border: 1px solid rgba(169,184,205,.2);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(169,184,205,.08);
 }
 .marketing-track {
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(90,166,232,.14);
   border: 1px solid rgba(90,166,232,.28);
   color: #dbeeff !important;
 }
 .marketing-hero {
-  min-height: calc(100vh - 75px);
+  min-height: calc(100vh - 92px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 620px);
   align-items: center;
@@ -733,7 +737,7 @@ td {
 .trust-row span {
   padding: 8px 10px;
   border: 1px solid rgba(169,184,205,.18);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(8,16,24,.58);
   color: #c8d4e3;
   font-size: 13px;
@@ -741,7 +745,7 @@ td {
 }
 .product-preview {
   border: 1px solid rgba(169,184,205,.22);
-  border-radius: 14px;
+  border-radius: 22px;
   overflow: hidden;
   background: rgba(14,23,34,.9);
   box-shadow: 0 28px 80px rgba(0,0,0,.46);
@@ -851,6 +855,12 @@ td {
 .marketing-section, .workflow-band, .marketing-cta {
   padding: clamp(48px, 7vw, 86px) clamp(18px, 5vw, 72px);
 }
+.marketing-section {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(67,166,255,.08), transparent 30%),
+    #f7f9fc;
+  color: #0d1722;
+}
 .section-heading {
   max-width: 820px;
   margin-bottom: 28px;
@@ -866,19 +876,26 @@ td {
   gap: 14px;
 }
 .marketing-card-grid article, .role-panels article, .workflow-steps article {
-  padding: 20px;
-  border: 1px solid rgba(169,184,205,.16);
-  border-radius: 12px;
-  background: #101923;
+  padding: 24px;
+  border: 1px solid rgba(13,23,34,.08);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgba(8,16,24,.08);
+}
+.marketing-card-grid strong, .role-panels strong, .workflow-steps strong {
+  color: #0d1722;
 }
 .marketing-card-grid p, .role-panels p, .workflow-steps p {
   margin-top: 10px;
-  color: #aebdcd;
+  color: #5b6b7d;
   line-height: 1.55;
 }
 .pricing-section {
-  background: #0a141f;
-  border-top: 1px solid rgba(169,184,205,.12);
+  background:
+    radial-gradient(circle at 85% 12%, rgba(34,183,238,.16), transparent 32%),
+    linear-gradient(180deg, #eef5ff, #f8fbff);
+  border-top: 1px solid rgba(13,23,34,.08);
+  color: #0d1722;
 }
 .pricing-grid {
   display: grid;
@@ -890,14 +907,16 @@ td {
   display: grid;
   gap: 14px;
   align-content: start;
-  padding: 22px;
-  border: 1px solid rgba(169,184,205,.16);
-  border-radius: 12px;
-  background: #101923;
+  padding: 26px;
+  border: 1px solid rgba(13,23,34,.08);
+  border-radius: 22px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 22px 60px rgba(8,16,24,.1);
 }
 .pricing-card.featured {
-  border-color: rgba(67,166,255,.45);
-  box-shadow: 0 18px 50px rgba(0,0,0,.24);
+  border-color: rgba(22,133,229,.42);
+  box-shadow: 0 28px 80px rgba(22,133,229,.18);
+  transform: translateY(-8px);
 }
 .pricing-card > small {
   position: absolute;
@@ -905,12 +924,12 @@ td {
   right: 14px;
   padding: 5px 8px;
   border-radius: 999px;
-  background: rgba(67,166,255,.16);
-  color: #9ed6ff;
+  background: rgba(22,133,229,.12);
+  color: #126fc4;
   font-weight: 800;
 }
 .pricing-card > span {
-  color: #9ed6ff;
+  color: #126fc4;
   font-weight: 900;
   text-transform: uppercase;
   font-size: 12px;
@@ -923,19 +942,19 @@ td {
 .pricing-card strong span {
   display: block;
   margin-top: 6px;
-  color: #9aa9bb;
+  color: #5b6b7d;
   font-size: 14px;
   font-weight: 700;
 }
 .pricing-card p {
-  color: #aebdcd;
+  color: #5b6b7d;
   line-height: 1.55;
 }
 .pricing-card ul {
   display: grid;
   gap: 9px;
   padding-left: 18px;
-  color: #c8d4e3;
+  color: #243242;
 }
 .pricing-card li {
   line-height: 1.4;
@@ -943,8 +962,53 @@ td {
 .pricing-note {
   margin-top: 18px;
   max-width: 860px;
-  color: #aebdcd;
+  color: #5b6b7d;
   line-height: 1.55;
+}
+.fee-menu {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px solid rgba(13,23,34,.08);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(8,16,24,.08);
+}
+.fee-menu-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.fee-menu-head h3 {
+  font-size: clamp(24px, 3vw, 36px);
+}
+.fee-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.fee-menu-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(13,23,34,.08);
+  border-radius: 16px;
+  background: #f7f9fc;
+}
+.fee-menu-grid span {
+  color: #5b6b7d;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.fee-menu-grid strong {
+  color: #0d1722;
+  font-size: 20px;
+}
+.fee-menu-grid p {
+  color: #5b6b7d;
+  line-height: 1.45;
 }
 .workflow-band {
   background: #0d1722;
@@ -1088,7 +1152,7 @@ td {
   .product-preview {
     max-width: 720px;
   }
-  .marketing-card-grid, .role-panels, .workflow-steps, .pricing-grid {
+  .marketing-card-grid, .role-panels, .workflow-steps, .pricing-grid, .fee-menu-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1116,8 +1180,14 @@ td {
   .hero-actions .btn {
     width: 100%;
   }
-  .marketing-card-grid, .role-panels, .workflow-steps, .preview-cards, .pricing-grid {
+  .marketing-card-grid, .role-panels, .workflow-steps, .preview-cards, .pricing-grid, .fee-menu-grid {
     grid-template-columns: 1fr;
+  }
+  .pricing-card.featured {
+    transform: none;
+  }
+  .fee-menu-head {
+    display: grid;
   }
   .marketing-footer {
     flex-direction: column;
