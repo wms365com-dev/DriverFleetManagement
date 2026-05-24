@@ -16,6 +16,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "Dispatcher365Handheld";
     private static final int REQUEST_PERMISSIONS = 20;
     private static final int REQUEST_FILE_CHOOSER = 21;
     private static final String[] SCAN_ACTIONS = {
@@ -149,7 +151,7 @@ public class MainActivity extends Activity {
         IntentFilter filter = new IntentFilter();
         for (String action : SCAN_ACTIONS) filter.addAction(action);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(scanReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            registerReceiver(scanReceiver, filter, Context.RECEIVER_EXPORTED);
         } else {
             registerReceiver(scanReceiver, filter);
         }
@@ -236,6 +238,7 @@ public class MainActivity extends Activity {
     private void handleScan(String rawValue) {
         String value = rawValue == null ? "" : rawValue.trim();
         if (value.isEmpty()) return;
+        Log.i(TAG, "Scan received: " + value);
         statusText.setText("Scanned: " + value);
         String escaped = value.replace("\\", "\\\\").replace("'", "\\'");
         String script = "(() => {"
