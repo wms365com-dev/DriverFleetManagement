@@ -14,6 +14,25 @@ function makeTrackingToken() {
 function normalizeCompanyCode(value) {
   return String(value || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'COMPANY';
 }
+function normalizeAffiliateCode(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
+}
+function affiliateBaseCode(data = {}) {
+  const explicitCode = normalizeAffiliateCode(data.code);
+  if (explicitCode) return explicitCode;
+  const personName = `${data.firstName || ''}${data.lastName || ''}`;
+  return normalizeAffiliateCode(personName || data.companyName || 'PARTNER').slice(0, 8) || 'PARTNER';
+}
+function nextAffiliateCode(existingAffiliates, data) {
+  const base = affiliateBaseCode(data);
+  let code = base;
+  let suffix = 1;
+  while (existingAffiliates.some(item => normalizeAffiliateCode(item.code) === code)) {
+    code = `${base.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
+    suffix += 1;
+  }
+  return code;
+}
 function generatedCompanyCode(name, id) {
   const base = normalizeCompanyCode(name).slice(0, 4).padEnd(4, 'X');
   return `${base}${String(id).padStart(4, '0')}`.slice(0, 8);
@@ -860,33 +879,34 @@ const fileDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const company = { id, name: data.name, code, status: data.status || 'active', billingStatus: data.billingStatus || 'active', billingPlan: data.billingPlan || '', stripeCustomerId: data.stripeCustomerId || '', stripeSubscriptionId: data.stripeSubscriptionId || '', subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null, affiliateCode: data.affiliateCode || '', createdAt: new Date().toISOString() };
+    const company = {
+      id,
+      name: data.name,
+      code,
+      status: data.status || 'active',
+      billingStatus: data.billingStatus || 'active',
+      billingPlan: data.billingPlan || '',
+      stripeCustomerId: data.stripeCustomerId || '',
+      stripeSubscriptionId: data.stripeSubscriptionId || '',
+      subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null,
+      affiliateCode: normalizeAffiliateCode(data.affiliateCode),
+      createdAt: new Date().toISOString()
+    };
     db.companies.push(company);
     writeFileDb(db);
     return company;
   },
   async getAffiliates() { return readFileDb().affiliates.map(mapAffiliate); },
   async findAffiliateByCode(code) {
-    const normalized = String(code || '').trim().toUpperCase();
-    const found = readFileDb().affiliates.find(item => String(item.code || '').toUpperCase() === normalized);
+    const normalized = normalizeAffiliateCode(code);
+    const found = readFileDb().affiliates.find(item => normalizeAffiliateCode(item.code) === normalized);
     return found ? mapAffiliate(found) : null;
   },
   async createAffiliate(data) {
     const db = readFileDb();
-    let code = String(data.code || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
-    if (!code) {
-      const base = String(`${data.firstName || ''}${data.lastName || ''}` || data.companyName || 'PARTNER').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'PARTNER';
-      code = base;
-    }
-    let nextCode = code;
-    let suffix = 1;
-    while (db.affiliates.some(item => String(item.code || '').toUpperCase() === nextCode)) {
-      nextCode = `${code.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
-      suffix += 1;
-    }
     const affiliate = {
       id: nextId(db.affiliates),
-      code: nextCode,
+      code: nextAffiliateCode(db.affiliates, data),
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       email: String(data.email || '').toLowerCase(),
@@ -907,12 +927,13 @@ const fileDb = {
   async getAffiliateReferrals() { return readFileDb().affiliateReferrals.map(mapAffiliateReferral); },
   async createAffiliateReferral(data) {
     const db = readFileDb();
-    const existing = db.affiliateReferrals.find(item => Number(item.companyId) === Number(data.companyId) && String(item.affiliateCode || '').toUpperCase() === String(data.affiliateCode || '').toUpperCase());
+    const affiliateCode = normalizeAffiliateCode(data.affiliateCode);
+    const existing = db.affiliateReferrals.find(item => Number(item.companyId) === Number(data.companyId) && normalizeAffiliateCode(item.affiliateCode) === affiliateCode);
     if (existing) return mapAffiliateReferral(existing);
     const referral = {
       id: nextId(db.affiliateReferrals),
       affiliateId: data.affiliateId || null,
-      affiliateCode: String(data.affiliateCode || '').toUpperCase(),
+      affiliateCode,
       companyId: data.companyId || null,
       companyName: data.companyName || '',
       plan: data.plan || '',
@@ -1288,7 +1309,23 @@ const pgDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const r = await pool.query(`INSERT INTO companies (id,name,code,status,billing_status,billing_plan,stripe_customer_id,stripe_subscription_id,subscription_current_period_end,affiliate_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [id, data.name, code, data.status || 'active', data.billingStatus || 'active', data.billingPlan || '', data.stripeCustomerId || '', data.stripeSubscriptionId || '', data.subscriptionCurrentPeriodEnd || null, data.affiliateCode || '']);
+    const values = [
+      id,
+      data.name,
+      code,
+      data.status || 'active',
+      data.billingStatus || 'active',
+      data.billingPlan || '',
+      data.stripeCustomerId || '',
+      data.stripeSubscriptionId || '',
+      data.subscriptionCurrentPeriodEnd || null,
+      normalizeAffiliateCode(data.affiliateCode)
+    ];
+    const r = await pool.query(
+      `INSERT INTO companies (id,name,code,status,billing_status,billing_plan,stripe_customer_id,stripe_subscription_id,subscription_current_period_end,affiliate_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      values
+    );
     return mapCompany(r.rows[0]);
   },
   async getAffiliates() {
@@ -1296,24 +1333,35 @@ const pgDb = {
     return r.rows.map(mapAffiliate);
   },
   async findAffiliateByCode(code) {
-    const r = await pool.query('SELECT * FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [String(code || '').trim()]);
+    const r = await pool.query('SELECT * FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [normalizeAffiliateCode(code)]);
     return r.rows[0] ? mapAffiliate(r.rows[0]) : null;
   },
   async createAffiliate(data) {
-    let code = String(data.code || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
-    if (!code) {
-      code = String(`${data.firstName || ''}${data.lastName || ''}` || data.companyName || 'PARTNER').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'PARTNER';
-    }
-    let nextCode = code;
+    const base = affiliateBaseCode(data);
+    let code = base;
     let suffix = 1;
-    while ((await pool.query('SELECT id FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [nextCode])).rows[0]) {
-      nextCode = `${code.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
+    while ((await pool.query('SELECT id FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [code])).rows[0]) {
+      code = `${base.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
       suffix += 1;
     }
+    const values = [
+      code,
+      data.firstName || '',
+      data.lastName || '',
+      String(data.email || '').toLowerCase(),
+      data.phone || '',
+      data.companyName || '',
+      data.promotionUrl || '',
+      data.promoterType || 'independent',
+      data.payoutEmail || data.email || '',
+      data.notes || '',
+      data.status || 'active',
+      Number(data.commissionRate || 25)
+    ];
     const r = await pool.query(
       `INSERT INTO affiliates (code,first_name,last_name,email,phone,company_name,promotion_url,promoter_type,payout_email,notes,status,commission_rate)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [nextCode, data.firstName || '', data.lastName || '', String(data.email || '').toLowerCase(), data.phone || '', data.companyName || '', data.promotionUrl || '', data.promoterType || 'independent', data.payoutEmail || data.email || '', data.notes || '', data.status || 'active', Number(data.commissionRate || 25)]
+      values
     );
     return mapAffiliate(r.rows[0]);
   },
@@ -1322,12 +1370,24 @@ const pgDb = {
     return r.rows.map(mapAffiliateReferral);
   },
   async createAffiliateReferral(data) {
-    const existing = await pool.query('SELECT * FROM affiliate_referrals WHERE company_id=$1 AND lower(affiliate_code)=lower($2) LIMIT 1', [data.companyId || null, data.affiliateCode || '']);
+    const affiliateCode = normalizeAffiliateCode(data.affiliateCode);
+    const existing = await pool.query('SELECT * FROM affiliate_referrals WHERE company_id=$1 AND lower(affiliate_code)=lower($2) LIMIT 1', [data.companyId || null, affiliateCode]);
     if (existing.rows[0]) return mapAffiliateReferral(existing.rows[0]);
+    const values = [
+      data.affiliateId || null,
+      affiliateCode,
+      data.companyId || null,
+      data.companyName || '',
+      data.plan || '',
+      Number(data.driverQuantity || 0),
+      data.status || 'signup_submitted',
+      Number(data.commissionRate || 25),
+      Number(data.estimatedMonthlyCommission || 0)
+    ];
     const r = await pool.query(
       `INSERT INTO affiliate_referrals (affiliate_id,affiliate_code,company_id,company_name,plan,driver_quantity,status,commission_rate,estimated_monthly_commission)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [data.affiliateId || null, String(data.affiliateCode || '').toUpperCase(), data.companyId || null, data.companyName || '', data.plan || '', Number(data.driverQuantity || 0), data.status || 'signup_submitted', Number(data.commissionRate || 25), Number(data.estimatedMonthlyCommission || 0)]
+      values
     );
     return mapAffiliateReferral(r.rows[0]);
   },

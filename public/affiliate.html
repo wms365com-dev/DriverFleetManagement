@@ -109,8 +109,21 @@
         message.className = 'signup-message success';
         message.textContent = 'Affiliate account created. Your referral link is ready.';
         result.hidden = false;
-        result.innerHTML = `<strong>Your code: ${code}</strong><label>Referral link<input readonly value="${link}" /></label><button class="btn ghost" type="button" id="copyAffiliateLink">Copy Link</button>`;
-        document.getElementById('copyAffiliateLink').onclick = async () => {
+        result.replaceChildren();
+        const codeLabel = document.createElement('strong');
+        codeLabel.textContent = `Your code: ${code}`;
+        const linkLabel = document.createElement('label');
+        linkLabel.textContent = 'Referral link';
+        const linkInput = document.createElement('input');
+        linkInput.readOnly = true;
+        linkInput.value = link;
+        const copyButton = document.createElement('button');
+        copyButton.className = 'btn ghost';
+        copyButton.type = 'button';
+        copyButton.textContent = 'Copy Link';
+        linkLabel.appendChild(linkInput);
+        result.append(codeLabel, linkLabel, copyButton);
+        copyButton.onclick = async () => {
           try {
             await navigator.clipboard.writeText(link);
             message.textContent = 'Referral link copied.';
