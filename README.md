@@ -52,3 +52,4 @@ Then open `http://localhost:3000`
 - The admin creates driver login accounts from the Drivers screen by checking **Create driver login** and setting a password.
 - Uploaded photos are served from `/uploads/...` and stored at the path set by `UPLOADS_DIR`.
 - Address quick entry uses saved company locations first. If `GEOAPIFY_API_KEY` is set, pickup and delivery fields also search Geoapify after the user types at least 3 characters.
+- Android handheld/scanner preparation is tracked in `ANDROID_HANDHELD_APP_PLAN.md`.
