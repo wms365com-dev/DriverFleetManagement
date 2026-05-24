@@ -6,3 +6,8 @@ backups
 data
 PROJECT_TRANSFER_PACKAGE/
 PROJECT_TRANSFER_PACKAGE.zip
+.local-android-tools/
+android-handheld/.gradle/
+android-handheld/build/
+android-handheld/app/build/
+android-handheld/local.properties
