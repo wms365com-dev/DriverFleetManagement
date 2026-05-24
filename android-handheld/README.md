@@ -34,6 +34,28 @@ Enable Developer Options and USB debugging on the handheld, then authorize the c
 .\.local-android-tools\android-sdk\platform-tools\adb.exe install -r android-handheld\app\build\outputs\apk\debug\app-debug.apk
 ```
 
+## R60-Like Local Emulator
+There is no official R60 emulator image in the Android SDK, but the repo includes scripts to create an R60-like Android Virtual Device using a tall rugged-handheld profile.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\create-r60-emulator.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start-r60-emulator.ps1
+```
+
+After the emulator boots, install the APK:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-android-handheld.ps1
+```
+
+To simulate a scanner broadcast:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\test-android-scan-broadcast.ps1 DEMO0001-2026-000777
+```
+
+Windows must have Android emulator hardware acceleration available. If launch fails with `x86_64 emulation currently requires hardware acceleration`, enable CPU virtualization in BIOS/UEFI and install/enable the Android Emulator hypervisor driver or Windows Hypervisor Platform.
+
 ## Local Server URL
 Android devices cannot use `127.0.0.1` to reach the Windows development server. Use the computer LAN IP instead, for example:
 
