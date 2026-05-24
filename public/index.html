@@ -104,6 +104,7 @@
       <a href="#workflow">Workflow</a>
       <a href="#roles">Roles</a>
       <a href="#pricing">Pricing</a>
+      <a href="/affiliate">Affiliates</a>
       <a href="#faq">FAQ</a>
       <a class="marketing-track" href="/tracking">Shipment Tracking</a>
       <a href="/signup">Sign Up</a>
@@ -259,6 +260,22 @@
       <p class="signup-message" id="checkoutMessage" role="status"></p>
     </section>
 
+    <section class="workflow-band affiliate-band">
+      <div class="section-heading">
+        <p class="eyebrow">Affiliate program</p>
+        <h2>Promote Dispatcher365 and earn 25% recurring commission.</h2>
+      </div>
+      <div class="marketing-card-grid">
+        <article><strong>Open to anyone</strong><p>You can promote as a customer, user, driver, consultant, agency, or independent partner.</p></article>
+        <article><strong>Referral tracking</strong><p>Each partner receives a unique signup link so referred companies are tracked from company setup.</p></article>
+        <article><strong>Recurring commission</strong><p>Commission is estimated at 25% of monthly subscription revenue for approved paid referrals.</p></article>
+      </div>
+      <div class="hero-actions">
+        <a class="btn primary" href="/affiliate">Join Affiliate Program</a>
+        <a class="btn ghost" href="/signup">Refer A Company</a>
+      </div>
+    </section>
+
     <section id="faq" class="workflow-band">
       <div class="section-heading">
         <p class="eyebrow">Fleet dispatch software FAQ</p>
@@ -279,6 +296,7 @@
       <h2>Create a company workspace or enter the secure portal.</h2>
       <div class="hero-actions">
         <a class="btn primary" href="/signup">Sign Up Company</a>
+        <a class="btn ghost" href="/affiliate">Affiliate Program</a>
         <a class="btn ghost" href="/portal">Go To Login</a>
       </div>
     </section>
@@ -293,6 +311,14 @@
     document.querySelectorAll('[data-current-year]').forEach(element => {
       element.textContent = new Date().getFullYear();
     });
+    const incomingAffiliateCode = (new URLSearchParams(window.location.search).get('ref') || new URLSearchParams(window.location.search).get('affiliate') || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 16);
+    if (incomingAffiliateCode) {
+      localStorage.setItem('dispatcher365AffiliateCode', incomingAffiliateCode);
+    }
     document.querySelectorAll('.stripe-checkout-btn').forEach(button => {
       button.addEventListener('click', async () => {
         const message = document.getElementById('checkoutMessage');
@@ -306,7 +332,8 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               plan: button.dataset.plan,
-              driverQuantity: button.dataset.drivers
+              driverQuantity: button.dataset.drivers,
+              affiliateCode: incomingAffiliateCode || localStorage.getItem('dispatcher365AffiliateCode') || ''
             })
           });
           const body = await res.json();

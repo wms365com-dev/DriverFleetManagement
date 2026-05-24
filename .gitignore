@@ -4,3 +4,5 @@ uploads
 backups
 *.log
 data
+PROJECT_TRANSFER_PACKAGE/
+PROJECT_TRANSFER_PACKAGE.zip

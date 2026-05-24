@@ -50,6 +50,8 @@ const seed = {
   inspections: [],
   loads: [],
   addresses: [],
+  affiliates: [],
+  affiliateReferrals: [],
   bugReports: [],
   notifications: [],
   issues: [
@@ -95,6 +97,7 @@ function normalizeFileDb() {
     if (!Object.prototype.hasOwnProperty.call(company, 'stripeCustomerId')) { company.stripeCustomerId = ''; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(company, 'stripeSubscriptionId')) { company.stripeSubscriptionId = ''; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(company, 'subscriptionCurrentPeriodEnd')) { company.subscriptionCurrentPeriodEnd = null; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(company, 'affiliateCode')) { company.affiliateCode = ''; changed = true; }
     const previous = normalizeCompanyCode(company.code || company.name);
     let code = previous;
     let suffix = 1;
@@ -165,6 +168,16 @@ function normalizeFileDb() {
     if (!Object.prototype.hasOwnProperty.call(notification, 'readAt')) { notification.readAt = null; changed = true; }
     if (!Object.prototype.hasOwnProperty.call(notification, 'metadata')) { notification.metadata = {}; changed = true; }
   }
+  for (const affiliate of db.affiliates) {
+    if (!Object.prototype.hasOwnProperty.call(affiliate, 'status')) { affiliate.status = 'active'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(affiliate, 'commissionRate')) { affiliate.commissionRate = 25; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(affiliate, 'createdAt')) { affiliate.createdAt = new Date().toISOString(); changed = true; }
+  }
+  for (const referral of db.affiliateReferrals) {
+    if (!Object.prototype.hasOwnProperty.call(referral, 'status')) { referral.status = 'signup_submitted'; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(referral, 'commissionRate')) { referral.commissionRate = 25; changed = true; }
+    if (!Object.prototype.hasOwnProperty.call(referral, 'updatedAt')) { referral.updatedAt = referral.createdAt || new Date().toISOString(); changed = true; }
+  }
   if (changed) fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
 function readFileDb() {
@@ -189,7 +202,42 @@ function mapCompany(r) {
     stripeCustomerId: r.stripe_customer_id || r.stripeCustomerId || '',
     stripeSubscriptionId: r.stripe_subscription_id || r.stripeSubscriptionId || '',
     subscriptionCurrentPeriodEnd: r.subscription_current_period_end || r.subscriptionCurrentPeriodEnd || null,
+    affiliateCode: r.affiliate_code || r.affiliateCode || '',
     createdAt: r.created_at || r.createdAt
+  };
+}
+function mapAffiliate(r) {
+  return {
+    id: r.id,
+    code: r.code,
+    firstName: r.first_name || r.firstName || '',
+    lastName: r.last_name || r.lastName || '',
+    email: r.email || '',
+    phone: r.phone || '',
+    companyName: r.company_name || r.companyName || '',
+    promotionUrl: r.promotion_url || r.promotionUrl || '',
+    promoterType: r.promoter_type || r.promoterType || 'independent',
+    payoutEmail: r.payout_email || r.payoutEmail || '',
+    notes: r.notes || '',
+    status: r.status || 'active',
+    commissionRate: Number(r.commission_rate ?? r.commissionRate ?? 25),
+    createdAt: r.created_at || r.createdAt
+  };
+}
+function mapAffiliateReferral(r) {
+  return {
+    id: r.id,
+    affiliateId: r.affiliate_id ?? r.affiliateId,
+    affiliateCode: r.affiliate_code || r.affiliateCode || '',
+    companyId: r.company_id ?? r.companyId ?? null,
+    companyName: r.company_name || r.companyName || '',
+    plan: r.plan || '',
+    driverQuantity: Number(r.driver_quantity ?? r.driverQuantity ?? 0),
+    status: r.status || 'signup_submitted',
+    commissionRate: Number(r.commission_rate ?? r.commissionRate ?? 25),
+    estimatedMonthlyCommission: Number(r.estimated_monthly_commission ?? r.estimatedMonthlyCommission ?? 0),
+    createdAt: r.created_at || r.createdAt,
+    updatedAt: r.updated_at || r.updatedAt
   };
 }
 function mapUser(r) {
@@ -396,7 +444,7 @@ async function ensureSuperUser() {
 
 async function syncPostgresSerialSequences() {
   if (!usePostgres) return;
-  const tables = ['companies', 'users', 'drivers', 'vehicles', 'assignments', 'shifts', 'inspections', 'issues', 'loads', 'addresses', 'bug_reports', 'notifications'];
+  const tables = ['companies', 'users', 'drivers', 'vehicles', 'assignments', 'shifts', 'inspections', 'issues', 'loads', 'addresses', 'bug_reports', 'notifications', 'affiliates', 'affiliate_referrals'];
   for (const table of tables) {
     await pool.query(`SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`);
   }
@@ -414,7 +462,38 @@ async function initPostgres() {
     stripe_customer_id TEXT,
     stripe_subscription_id TEXT,
     subscription_current_period_end TIMESTAMPTZ,
+    affiliate_code TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS affiliates (
+    id SERIAL PRIMARY KEY,
+    code TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT,
+    company_name TEXT,
+    promotion_url TEXT,
+    promoter_type TEXT NOT NULL DEFAULT 'independent',
+    payout_email TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    commission_rate NUMERIC NOT NULL DEFAULT 25,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS affiliate_referrals (
+    id SERIAL PRIMARY KEY,
+    affiliate_id INTEGER REFERENCES affiliates(id) ON DELETE SET NULL,
+    affiliate_code TEXT NOT NULL,
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+    company_name TEXT,
+    plan TEXT,
+    driver_quantity INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'signup_submitted',
+    commission_rate NUMERIC NOT NULL DEFAULT 25,
+    estimated_monthly_commission NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -608,6 +687,9 @@ async function initPostgres() {
   await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`);
   await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`);
   await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS affiliate_code TEXT`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS affiliates_code_unique ON affiliates (lower(code))`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS affiliate_referrals_code_idx ON affiliate_referrals (lower(affiliate_code))`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS tracking_enabled BOOLEAN NOT NULL DEFAULT false`);
@@ -778,10 +860,72 @@ const fileDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const company = { id, name: data.name, code, status: data.status || 'active', billingStatus: data.billingStatus || 'active', billingPlan: data.billingPlan || '', stripeCustomerId: data.stripeCustomerId || '', stripeSubscriptionId: data.stripeSubscriptionId || '', subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null, createdAt: new Date().toISOString() };
+    const company = { id, name: data.name, code, status: data.status || 'active', billingStatus: data.billingStatus || 'active', billingPlan: data.billingPlan || '', stripeCustomerId: data.stripeCustomerId || '', stripeSubscriptionId: data.stripeSubscriptionId || '', subscriptionCurrentPeriodEnd: data.subscriptionCurrentPeriodEnd || null, affiliateCode: data.affiliateCode || '', createdAt: new Date().toISOString() };
     db.companies.push(company);
     writeFileDb(db);
     return company;
+  },
+  async getAffiliates() { return readFileDb().affiliates.map(mapAffiliate); },
+  async findAffiliateByCode(code) {
+    const normalized = String(code || '').trim().toUpperCase();
+    const found = readFileDb().affiliates.find(item => String(item.code || '').toUpperCase() === normalized);
+    return found ? mapAffiliate(found) : null;
+  },
+  async createAffiliate(data) {
+    const db = readFileDb();
+    let code = String(data.code || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
+    if (!code) {
+      const base = String(`${data.firstName || ''}${data.lastName || ''}` || data.companyName || 'PARTNER').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'PARTNER';
+      code = base;
+    }
+    let nextCode = code;
+    let suffix = 1;
+    while (db.affiliates.some(item => String(item.code || '').toUpperCase() === nextCode)) {
+      nextCode = `${code.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
+      suffix += 1;
+    }
+    const affiliate = {
+      id: nextId(db.affiliates),
+      code: nextCode,
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      email: String(data.email || '').toLowerCase(),
+      phone: data.phone || '',
+      companyName: data.companyName || '',
+      promotionUrl: data.promotionUrl || '',
+      promoterType: data.promoterType || 'independent',
+      payoutEmail: data.payoutEmail || data.email || '',
+      notes: data.notes || '',
+      status: data.status || 'active',
+      commissionRate: Number(data.commissionRate || 25),
+      createdAt: new Date().toISOString()
+    };
+    db.affiliates.push(affiliate);
+    writeFileDb(db);
+    return mapAffiliate(affiliate);
+  },
+  async getAffiliateReferrals() { return readFileDb().affiliateReferrals.map(mapAffiliateReferral); },
+  async createAffiliateReferral(data) {
+    const db = readFileDb();
+    const existing = db.affiliateReferrals.find(item => Number(item.companyId) === Number(data.companyId) && String(item.affiliateCode || '').toUpperCase() === String(data.affiliateCode || '').toUpperCase());
+    if (existing) return mapAffiliateReferral(existing);
+    const referral = {
+      id: nextId(db.affiliateReferrals),
+      affiliateId: data.affiliateId || null,
+      affiliateCode: String(data.affiliateCode || '').toUpperCase(),
+      companyId: data.companyId || null,
+      companyName: data.companyName || '',
+      plan: data.plan || '',
+      driverQuantity: Number(data.driverQuantity || 0),
+      status: data.status || 'signup_submitted',
+      commissionRate: Number(data.commissionRate || 25),
+      estimatedMonthlyCommission: Number(data.estimatedMonthlyCommission || 0),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    db.affiliateReferrals.push(referral);
+    writeFileDb(db);
+    return mapAffiliateReferral(referral);
   },
   async updateCompanyStatus(id, status) {
     const db = readFileDb();
@@ -813,7 +957,10 @@ const fileDb = {
   },
   async createUser(data) {
     const db = readFileDb();
-    const user = { id: nextId(db.users), companyId: data.companyId || null, email: String(data.email).toLowerCase(), passwordHash: hashPassword(data.password), role: data.role, linkedDriverId: data.linkedDriverId || null, firstName: data.firstName || '', lastName: data.lastName || '', isActive: data.isActive !== false };
+    const email = String(data.email || '').toLowerCase();
+    if (!email) throw new Error('Email is required.');
+    if (db.users.some(user => String(user.email || '').toLowerCase() === email)) throw new Error('An account with this email already exists.');
+    const user = { id: nextId(db.users), companyId: data.companyId || null, email, passwordHash: hashPassword(data.password), role: data.role, linkedDriverId: data.linkedDriverId || null, firstName: data.firstName || '', lastName: data.lastName || '', isActive: data.isActive !== false };
     db.users.push(user);
     writeFileDb(db);
     return safeUser(user);
@@ -828,7 +975,10 @@ const fileDb = {
     const driver = { id: nextId(db.drivers), companyId, firstName: data.firstName, lastName: data.lastName, phone: data.phone || '', email: data.email || '', licenseNumber: data.licenseNumber || '', licenseClass: data.licenseClass || '', licenseExpiry: data.licenseExpiry || '', status: data.status || 'active', lastLat: null, lastLng: null, lastSeenAt: null, trackingEnabled: false };
     db.drivers.push(driver);
     if (data.createLogin && data.userPassword) {
-      db.users.push({ id: nextId(db.users), companyId, email: String(data.email || '').toLowerCase(), passwordHash: hashPassword(data.userPassword), role: 'driver', linkedDriverId: driver.id, firstName: data.firstName, lastName: data.lastName, isActive: true });
+      const email = String(data.email || '').toLowerCase();
+      if (!email) throw new Error('Driver email is required to create a login.');
+      if (db.users.some(user => String(user.email || '').toLowerCase() === email)) throw new Error('An account with this email already exists.');
+      db.users.push({ id: nextId(db.users), companyId, email, passwordHash: hashPassword(data.userPassword), role: 'driver', linkedDriverId: driver.id, firstName: data.firstName, lastName: data.lastName, isActive: true });
     }
     writeFileDb(db);
     return driver;
@@ -1138,8 +1288,48 @@ const pgDb = {
       code = `${code.slice(0, 6)}${String(suffix).padStart(2, '0')}`.slice(0, 8);
       suffix += 1;
     }
-    const r = await pool.query(`INSERT INTO companies (id,name,code,status,billing_status,billing_plan,stripe_customer_id,stripe_subscription_id,subscription_current_period_end) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [id, data.name, code, data.status || 'active', data.billingStatus || 'active', data.billingPlan || '', data.stripeCustomerId || '', data.stripeSubscriptionId || '', data.subscriptionCurrentPeriodEnd || null]);
+    const r = await pool.query(`INSERT INTO companies (id,name,code,status,billing_status,billing_plan,stripe_customer_id,stripe_subscription_id,subscription_current_period_end,affiliate_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [id, data.name, code, data.status || 'active', data.billingStatus || 'active', data.billingPlan || '', data.stripeCustomerId || '', data.stripeSubscriptionId || '', data.subscriptionCurrentPeriodEnd || null, data.affiliateCode || '']);
     return mapCompany(r.rows[0]);
+  },
+  async getAffiliates() {
+    const r = await pool.query('SELECT * FROM affiliates ORDER BY created_at DESC');
+    return r.rows.map(mapAffiliate);
+  },
+  async findAffiliateByCode(code) {
+    const r = await pool.query('SELECT * FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [String(code || '').trim()]);
+    return r.rows[0] ? mapAffiliate(r.rows[0]) : null;
+  },
+  async createAffiliate(data) {
+    let code = String(data.code || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
+    if (!code) {
+      code = String(`${data.firstName || ''}${data.lastName || ''}` || data.companyName || 'PARTNER').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 8) || 'PARTNER';
+    }
+    let nextCode = code;
+    let suffix = 1;
+    while ((await pool.query('SELECT id FROM affiliates WHERE lower(code)=lower($1) LIMIT 1', [nextCode])).rows[0]) {
+      nextCode = `${code.slice(0, 12)}${String(suffix).padStart(2, '0')}`.slice(0, 16);
+      suffix += 1;
+    }
+    const r = await pool.query(
+      `INSERT INTO affiliates (code,first_name,last_name,email,phone,company_name,promotion_url,promoter_type,payout_email,notes,status,commission_rate)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [nextCode, data.firstName || '', data.lastName || '', String(data.email || '').toLowerCase(), data.phone || '', data.companyName || '', data.promotionUrl || '', data.promoterType || 'independent', data.payoutEmail || data.email || '', data.notes || '', data.status || 'active', Number(data.commissionRate || 25)]
+    );
+    return mapAffiliate(r.rows[0]);
+  },
+  async getAffiliateReferrals() {
+    const r = await pool.query('SELECT * FROM affiliate_referrals ORDER BY created_at DESC');
+    return r.rows.map(mapAffiliateReferral);
+  },
+  async createAffiliateReferral(data) {
+    const existing = await pool.query('SELECT * FROM affiliate_referrals WHERE company_id=$1 AND lower(affiliate_code)=lower($2) LIMIT 1', [data.companyId || null, data.affiliateCode || '']);
+    if (existing.rows[0]) return mapAffiliateReferral(existing.rows[0]);
+    const r = await pool.query(
+      `INSERT INTO affiliate_referrals (affiliate_id,affiliate_code,company_id,company_name,plan,driver_quantity,status,commission_rate,estimated_monthly_commission)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [data.affiliateId || null, String(data.affiliateCode || '').toUpperCase(), data.companyId || null, data.companyName || '', data.plan || '', Number(data.driverQuantity || 0), data.status || 'signup_submitted', Number(data.commissionRate || 25), Number(data.estimatedMonthlyCommission || 0)]
+    );
+    return mapAffiliateReferral(r.rows[0]);
   },
   async updateCompanyStatus(id, status) {
     const client = await pool.connect();

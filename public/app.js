@@ -12,6 +12,8 @@ const state = {
   loads: [],
   addresses: [],
   bugReports: [],
+  affiliates: [],
+  affiliateReferrals: [],
   notifications: [],
   notificationSettings: null,
   selectedCompanyId: null,
@@ -189,6 +191,7 @@ const viewIcons = {
   reports: 'chart',
   users: 'users',
   companies: 'building',
+  affiliates: 'link',
   settings: 'gear',
   bugReports: 'bug',
   notifications: 'bell',
@@ -794,6 +797,7 @@ function getNavItems() {
   return [
     ['platformHome', 'Dashboard'],
     ['companies', 'Companies'],
+    ['affiliates', 'Affiliates'],
     ['users', 'Company Users'],
     ['reports', 'Reports'],
     ['settings', 'Settings'],
@@ -871,6 +875,7 @@ function getViewTitle(view) {
     loads: 'Load Dispatch',
     locations: 'Customers / Locations',
     customerTracking: 'Customer Tracking',
+    affiliates: 'Affiliate Program',
     companies: 'Company Setup',
     users: 'Users & Access',
     dashboard: 'Dispatch Dashboard',
@@ -923,6 +928,7 @@ function renderView(view) {
   if (view === 'loads') return renderLoads();
   if (view === 'locations') return renderLocations();
   if (view === 'customerTracking') return renderCustomerTracking();
+  if (view === 'affiliates') return renderAffiliates();
   if (view === 'companies') return renderCompanies();
   if (view === 'users') return renderUsers();
   if (view === 'dashboard') return renderDashboard();
@@ -1114,6 +1120,46 @@ function renderCompanies() {
           <label>Initial admin password<input name="adminPassword" type="password" autocomplete="new-password" required /></label>
           <button class="btn primary" type="submit">Create Company</button>
         </form>
+      </section>
+    </div>`;
+}
+
+function renderAffiliates() {
+  const totalAffiliates = state.affiliates.length;
+  const referredCompanies = state.affiliateReferrals.length;
+  const activeReferrals = state.affiliateReferrals.filter(item => ['active', 'approved'].includes(String(item.companyStatus || item.status).toLowerCase())).length;
+  const estimatedCommission = state.affiliateReferrals.reduce((sum, item) => sum + Number(item.estimatedMonthlyCommission || 0), 0);
+  const linkFor = code => `${window.location.origin}/signup?ref=${encodeURIComponent(code)}`;
+  return `
+    <div class="role-home">
+      <section class="panel glass">
+        <div class="panel-head"><h3>Affiliate Program</h3><p>25% recurring commission for referred companies.</p></div>
+        <div class="dashboard-grid compact-metrics">
+          <div class="metric-card glass"><span>Affiliates</span><strong>${totalAffiliates}</strong></div>
+          <div class="metric-card glass"><span>Referred Companies</span><strong>${referredCompanies}</strong></div>
+          <div class="metric-card glass"><span>Active Referrals</span><strong>${activeReferrals}</strong></div>
+          <div class="metric-card glass"><span>Est. Monthly Commission</span><strong>$${estimatedCommission.toFixed(2)}</strong></div>
+        </div>
+        <div class="quick-action-grid action-grid">
+          <a class="list-card action-card" href="/affiliate" target="_blank" rel="noopener"><strong>Public Affiliate Page</strong><span>Anyone can apply and receive a referral link.</span></a>
+          <a class="list-card action-card" href="/signup" target="_blank" rel="noopener"><strong>Company Signup</strong><span>Referral links prefill affiliate code using ?ref=CODE.</span></a>
+        </div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Affiliate Partners</h3><p>Promoters can be customers, users, or independent partners.</p></div>
+        ${listSearch('affiliateList', 'Search affiliate, code, email')}
+        <div class="table-wrap"><table><thead><tr><th>Affiliate</th><th>Code / Link</th><th>Status</th><th>Payout</th><th>Joined</th></tr></thead><tbody data-filter-list="affiliateList">
+          ${state.affiliates.map(item => `<tr data-search="${searchableText(item.firstName, item.lastName, item.email, item.code, item.companyName, item.status)}"><td><strong>${esc(`${item.firstName || ''} ${item.lastName || ''}`.trim())}</strong><p class="tiny">${esc(item.email)}${item.companyName ? ` · ${esc(item.companyName)}` : ''}</p></td><td><strong>${esc(item.code)}</strong><p class="tiny">${esc(linkFor(item.code))}</p></td><td>${statusTag(item.status)}</td><td>${esc(item.payoutEmail || item.email)}<p class="tiny">${Number(item.commissionRate || 25)}% commission</p></td><td>${fmt(item.createdAt)}</td></tr>`).join('') || '<tr><td colspan="5">No affiliates yet.</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="5">No matching affiliates.</td></tr>
+        </tbody></table></div>
+      </section>
+      <section class="panel glass">
+        <div class="panel-head"><h3>Referral Pipeline</h3><p>Companies that signed up through an affiliate link.</p></div>
+        ${listSearch('referralList', 'Search referral, company, code')}
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Affiliate</th><th>Status</th><th>Plan</th><th>Est. Monthly Commission</th></tr></thead><tbody data-filter-list="referralList">
+          ${state.affiliateReferrals.map(item => `<tr data-search="${searchableText(item.companyName, item.affiliateCode, item.plan, item.status, item.companyStatus, item.billingStatus)}"><td><strong>${esc(item.companyName)}</strong><p class="tiny">${esc(item.companyCode || '')}</p></td><td>${esc(item.affiliateCode)}</td><td>${statusTag(item.companyStatus || item.status)}${item.billingStatus ? `<p class="tiny">Billing: ${esc(item.billingStatus)}</p>` : ''}</td><td>${esc(item.plan || 'operations')}<p class="tiny">${Number(item.driverQuantity || 0)} drivers</p></td><td><strong>$${Number(item.estimatedMonthlyCommission || 0).toFixed(2)}</strong><p class="tiny">25% recurring estimate</p></td></tr>`).join('') || '<tr><td colspan="5">No referrals yet.</td></tr>'}
+          <tr data-filter-empty hidden><td colspan="5">No matching referrals.</td></tr>
+        </tbody></table></div>
       </section>
     </div>`;
 }
@@ -3018,6 +3064,8 @@ async function loadEverything() {
     state.loads = [];
     state.addresses = [];
     state.bugReports = [];
+    state.affiliates = [];
+    state.affiliateReferrals = [];
     state.notifications = [];
     state.notificationSettings = null;
     return;
@@ -3035,11 +3083,12 @@ async function loadEverything() {
     api('/api/loads'),
     isStaffLike() ? api('/api/addresses') : Promise.resolve([]),
     isStaffLike() ? api('/api/bug-reports') : Promise.resolve([]),
+    isSuper() ? api('/api/affiliates') : Promise.resolve({ affiliates: [], referrals: [] }),
     api('/api/notifications'),
     isStaffLike() ? api('/api/notification-settings') : Promise.resolve(null)
   ];
 
-  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports, notifications, notificationSettings] = await Promise.all(requests);
+  const [users, dashboard, drivers, vehicles, assignments, shifts, inspections, issues, loads, addresses, bugReports, affiliateProgram, notifications, notificationSettings] = await Promise.all(requests);
   state.users = users;
   state.dashboard = dashboard;
   state.drivers = drivers;
@@ -3051,6 +3100,8 @@ async function loadEverything() {
   state.loads = loads;
   state.addresses = addresses;
   state.bugReports = bugReports;
+  state.affiliates = affiliateProgram.affiliates || [];
+  state.affiliateReferrals = affiliateProgram.referrals || [];
   state.notifications = notifications;
   state.notificationSettings = notificationSettings;
   if (!state.selectedDriverId && state.drivers[0]) state.selectedDriverId = state.drivers[0].id;

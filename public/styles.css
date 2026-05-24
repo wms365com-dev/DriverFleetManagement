@@ -1205,6 +1205,43 @@ td {
 .signup-message.error {
   color: #f092a0;
 }
+.affiliate-page .signup-intro h1 {
+  max-width: 760px;
+}
+.affiliate-flow article {
+  min-height: 118px;
+}
+.affiliate-terms,
+.affiliate-result {
+  border: 1px solid rgba(118, 171, 214, .22);
+  border-radius: 16px;
+  background: rgba(9, 21, 32, .74);
+  padding: 18px;
+}
+.affiliate-terms {
+  margin-top: 20px;
+  color: #cfe0f0;
+}
+.affiliate-terms p {
+  margin-bottom: 0;
+}
+.affiliate-result {
+  display: grid;
+  gap: 12px;
+}
+.affiliate-result[hidden] {
+  display: none;
+}
+.affiliate-result strong {
+  color: #f4f7fb;
+}
+.affiliate-referral-note {
+  border: 1px solid rgba(112, 221, 181, .34);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(112, 221, 181, .08);
+  color: #8df0cf;
+}
 @media (max-width: 1080px) {
   .marketing-hero {
     grid-template-columns: 1fr;

@@ -42,6 +42,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(['/portal', '/login', '/app'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/signup', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'signup.html')));
+app.get('/affiliate', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'affiliate.html')));
 app.get(['/tracking', '/track'], (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tracking.html')));
 app.get('/track/:token', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'tracking.html')));
 
@@ -136,15 +137,35 @@ function companyCodeFromName(name) {
   const base = String(name || 'COMPANY').toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 4).padEnd(4, 'X') || 'COMP';
   return `${base}${Date.now().toString(36).toUpperCase()}`.slice(0, 8);
 }
+function normalizeAffiliateCode(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 16);
+}
 function signupPayload(body) {
   return {
     companyName: String(body.companyName || '').trim(),
     fleetSize: String(body.fleetSize || '').trim(),
+    plan: String(body.plan || 'operations').trim().toLowerCase(),
+    driverQuantity: Math.max(1, Math.min(500, Number(body.driverQuantity) || 1)),
     firstName: String(body.firstName || '').trim(),
     lastName: String(body.lastName || '').trim(),
     phone: String(body.phone || '').trim(),
     email: String(body.email || '').trim().toLowerCase(),
     password: String(body.password || ''),
+    affiliateCode: normalizeAffiliateCode(body.affiliateCode || body.referralCode || body.ref || ''),
+    website: String(body.website || '').trim()
+  };
+}
+function affiliatePayload(body) {
+  return {
+    firstName: String(body.firstName || '').trim(),
+    lastName: String(body.lastName || '').trim(),
+    email: String(body.email || '').trim().toLowerCase(),
+    phone: String(body.phone || '').trim(),
+    companyName: String(body.companyName || '').trim(),
+    promotionUrl: String(body.promotionUrl || '').trim(),
+    promoterType: String(body.promoterType || 'independent').trim(),
+    payoutEmail: String(body.payoutEmail || body.email || '').trim().toLowerCase(),
+    notes: String(body.notes || '').trim(),
     website: String(body.website || '').trim()
   };
 }
@@ -155,6 +176,26 @@ function validateSignup(payload) {
   if (payload.password.length < 10) throw new Error('Password must be at least 10 characters.');
   if (!payload.firstName) throw new Error('Admin first name is required.');
   if (!payload.lastName) throw new Error('Admin last name is required.');
+}
+function validateAffiliate(payload) {
+  if (payload.website) throw new Error('Unable to create affiliate account.');
+  if (!payload.firstName) throw new Error('First name is required.');
+  if (!payload.lastName) throw new Error('Last name is required.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw new Error('Valid email is required.');
+  if (payload.payoutEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.payoutEmail)) throw new Error('Valid payout email is required.');
+}
+function validatePassword(password, label = 'Password') {
+  if (String(password || '').length < 10) throw new Error(`${label} must be at least 10 characters.`);
+}
+const affiliatePlanPricing = {
+  starter: { base: 99, driver: 10 },
+  operations: { base: 149, driver: 15 },
+  pro: { base: 399, driver: 18 }
+};
+function affiliateCommissionEstimate(planKey = 'operations', driverQuantity = 1) {
+  const plan = affiliatePlanPricing[planKey] || affiliatePlanPricing.operations;
+  const monthly = plan.base + (plan.driver * Math.max(1, Number(driverQuantity) || 1));
+  return Math.round(monthly * 25) / 100;
 }
 function publicSignupError(error) {
   const message = String(error?.message || '');
@@ -745,7 +786,8 @@ function stripeCheckoutPayload(body) {
     driverQuantity,
     customerEmail: String(body.email || '').trim().toLowerCase(),
     companyName: String(body.companyName || '').trim(),
-    companyId: Number(body.companyId) || null
+    companyId: Number(body.companyId) || null,
+    affiliateCode: normalizeAffiliateCode(body.affiliateCode || body.ref || '')
   };
 }
 function stripePeriodEnd(subscription) {
@@ -852,7 +894,12 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
   try {
     if (!stripe) return res.status(503).json({ error: 'Stripe is not configured yet. Add STRIPE_SECRET_KEY and Price IDs in Railway.' });
     const payload = stripeCheckoutPayload(req.body);
+    if (payload.affiliateCode) {
+      const affiliate = await db.findAffiliateByCode(payload.affiliateCode);
+      if (!affiliate || affiliate.status !== 'active') return res.status(400).json({ error: 'Affiliate code was not found. Remove the referral code or ask the affiliate for a fresh link.' });
+    }
     const origin = requestedOrigin(req);
+    const referralParam = payload.affiliateCode ? `&ref=${encodeURIComponent(payload.affiliateCode)}` : '';
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: payload.customerEmail || undefined,
@@ -869,7 +916,8 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
           plan: payload.planKey,
           companyId: payload.companyId ? String(payload.companyId) : '',
           companyName: payload.companyName,
-          driverQuantity: String(payload.driverQuantity)
+          driverQuantity: String(payload.driverQuantity),
+          affiliateCode: payload.affiliateCode
         }
       },
       metadata: {
@@ -877,15 +925,53 @@ app.post('/api/public/create-checkout-session', async (req, res) => {
         companyId: payload.companyId ? String(payload.companyId) : '',
         companyName: payload.companyName,
         driverQuantity: String(payload.driverQuantity),
+        affiliateCode: payload.affiliateCode,
         trialDays: String(STRIPE_TRIAL_DAYS)
       },
-      success_url: process.env.STRIPE_SUCCESS_URL || `${origin}/signup?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: process.env.STRIPE_CANCEL_URL || `${origin}/signup?payment=cancelled`
+      success_url: process.env.STRIPE_SUCCESS_URL || `${origin}/signup?payment=success&session_id={CHECKOUT_SESSION_ID}${referralParam}`,
+      cancel_url: process.env.STRIPE_CANCEL_URL || `${origin}/signup?payment=cancelled${referralParam}`
     });
     res.json({ ok: true, url: session.url });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Unable to start Stripe checkout.' });
   }
+});
+
+app.post('/api/public/affiliates', async (req, res) => {
+  try {
+    const payload = affiliatePayload(req.body);
+    validateAffiliate(payload);
+    const affiliate = await db.createAffiliate({
+      ...payload,
+      status: 'active',
+      commissionRate: 25
+    });
+    await notify(null, {
+      audience: 'super_user',
+      type: 'affiliate_signup',
+      severity: 'info',
+      title: 'New affiliate partner joined',
+      message: `${affiliate.firstName} ${affiliate.lastName} can now promote Dispatcher365 with code ${affiliate.code}.`,
+      link: '#affiliates',
+      metadata: { affiliateId: affiliate.id, affiliateCode: affiliate.code }
+    });
+    res.json({ ok: true, affiliate });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Unable to create affiliate account.' });
+  }
+});
+
+app.get('/api/public/affiliate/:code', async (req, res) => {
+  const affiliate = await db.findAffiliateByCode(req.params.code);
+  if (!affiliate || affiliate.status !== 'active') return res.status(404).json({ error: 'Affiliate code was not found.' });
+  res.json({
+    ok: true,
+    affiliate: {
+      code: affiliate.code,
+      name: `${affiliate.firstName || ''} ${affiliate.lastName || ''}`.trim(),
+      companyName: affiliate.companyName || ''
+    }
+  });
 });
 
 app.post('/api/public/signup', async (req, res) => {
@@ -894,12 +980,18 @@ app.post('/api/public/signup', async (req, res) => {
     validateSignup(payload);
     const existing = await db.findUserByEmail(payload.email);
     if (existing) return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
+    const affiliate = payload.affiliateCode ? await db.findAffiliateByCode(payload.affiliateCode) : null;
+    if (payload.affiliateCode && (!affiliate || affiliate.status !== 'active')) {
+      return res.status(400).json({ error: 'Affiliate code was not found. Remove the referral code or ask the affiliate for a fresh link.' });
+    }
 
     const company = await db.createCompany({
       name: payload.companyName,
       code: companyCodeFromName(payload.companyName),
       status: 'pending',
-      billingStatus: 'payment_required'
+      billingStatus: 'payment_required',
+      billingPlan: payload.plan,
+      affiliateCode: affiliate?.code || payload.affiliateCode || ''
     });
     await db.createUser({
       companyId: company.id,
@@ -910,6 +1002,28 @@ app.post('/api/public/signup', async (req, res) => {
       lastName: payload.lastName,
       isActive: false
     });
+    if (affiliate) {
+      await db.createAffiliateReferral({
+        affiliateId: affiliate.id,
+        affiliateCode: affiliate.code,
+        companyId: company.id,
+        companyName: company.name,
+        plan: payload.plan,
+        driverQuantity: payload.driverQuantity,
+        status: 'signup_submitted',
+        commissionRate: 25,
+        estimatedMonthlyCommission: affiliateCommissionEstimate(payload.plan, payload.driverQuantity)
+      });
+      await notify(null, {
+        audience: 'super_user',
+        type: 'affiliate_referral',
+        severity: 'info',
+        title: 'Affiliate referred a company',
+        message: `${affiliate.code} referred ${company.name}.`,
+        link: '#affiliates',
+        metadata: { affiliateId: affiliate.id, affiliateCode: affiliate.code, companyId: company.id }
+      });
+    }
     await notify(null, {
       audience: 'super_user',
       type: 'company_signup',
@@ -923,6 +1037,25 @@ app.post('/api/public/signup', async (req, res) => {
   } catch (error) {
     res.status(400).json({ error: publicSignupError(error) });
   }
+});
+
+app.get('/api/affiliates', auth, superOnly, async (_req, res) => {
+  const [affiliates, referrals, companies] = await Promise.all([
+    db.getAffiliates(),
+    db.getAffiliateReferrals(),
+    db.getCompanies()
+  ]);
+  const companyById = new Map(companies.map(company => [Number(company.id), company]));
+  const enrichedReferrals = referrals.map(referral => {
+    const company = companyById.get(Number(referral.companyId));
+    return {
+      ...referral,
+      companyStatus: company?.status || referral.status,
+      billingStatus: company?.billingStatus || '',
+      companyCode: company?.code || ''
+    };
+  });
+  res.json({ affiliates, referrals: enrichedReferrals });
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -960,6 +1093,7 @@ app.post('/api/companies', auth, superOnly, async (req, res) => {
   try {
     const company = await db.createCompany({ name: req.body.name, code: req.body.code || '', status: req.body.status || 'active' });
     if (req.body.adminEmail && req.body.adminPassword) {
+      validatePassword(req.body.adminPassword, 'Initial admin password');
       await db.createUser({
         companyId: company.id,
         email: req.body.adminEmail,
@@ -1020,6 +1154,7 @@ app.post('/api/users', auth, companyAdminOnly, requireCompanyScope, async (req, 
     if (!['admin', 'support_staff'].includes(role) && req.sessionUser.role !== 'super_user') {
       return res.status(400).json({ error: 'Invalid role' });
     }
+    validatePassword(req.body.password);
     const user = await db.createUser({
       companyId: req.companyId,
       email: req.body.email,
@@ -1045,6 +1180,11 @@ app.get('/api/drivers', auth, requireCompanyScope, requireDriverProfile, async (
 });
 app.post('/api/drivers', auth, staffOnly, requireCompanyScope, async (req, res) => {
   try {
+    const createLogin = req.body.createLogin === true || req.body.createLogin === 'true';
+    if (createLogin) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(req.body.email || '').trim())) throw new Error('Valid driver email is required to create a login.');
+      validatePassword(req.body.userPassword, 'Driver password');
+    }
     const driver = await db.createDriver(req.companyId, {
       firstName: req.body.firstName,
       lastName: req.body.lastName,
@@ -1054,7 +1194,7 @@ app.post('/api/drivers', auth, staffOnly, requireCompanyScope, async (req, res) 
       licenseClass: req.body.licenseClass || '',
       licenseExpiry: req.body.licenseExpiry || '',
       status: req.body.status || 'active',
-      createLogin: req.body.createLogin === true || req.body.createLogin === 'true',
+      createLogin,
       userPassword: req.body.userPassword || ''
     });
     res.json(driver);

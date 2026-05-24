@@ -51,6 +51,7 @@ async function runStep(name, fn) {
   let vehicle;
   let load;
   let blockedBillingUser;
+  let affiliateCode;
 
   await runStep('Marketing home page', async () => {
     await page.goto(`${baseURL}/`, { waitUntil: 'networkidle' });
@@ -92,6 +93,35 @@ async function runStep(name, fn) {
     await page.getByText(/workspace request has been submitted/i).waitFor({ timeout: 10000 });
   });
 
+  await runStep('Affiliate signup and referred company flow', async () => {
+    await page.goto(`${baseURL}/affiliate`, { waitUntil: 'networkidle' });
+    await page.getByLabel('First name').fill('QA');
+    await page.getByLabel('Last name').fill(`Affiliate ${suffix}`);
+    await page.getByLabel('Email', { exact: true }).fill(`qa.affiliate.${suffix}@example.test`);
+    await page.getByLabel('Phone').fill('5552223300');
+    await page.getByLabel('Company or brand name').fill('QA Referral Partners');
+    await page.getByLabel('Promoter type').selectOption('consultant');
+    await page.getByRole('button', { name: /create affiliate link/i }).click();
+    await page.locator('#affiliateResult:not([hidden])').waitFor({ timeout: 10000 });
+    const resultText = await page.locator('#affiliateResult').innerText();
+    affiliateCode = resultText.match(/Your code:\s*([A-Z0-9]+)/)?.[1];
+    expect(Boolean(affiliateCode), 'Affiliate code was not created');
+
+    await page.goto(`${baseURL}/signup?ref=${affiliateCode}`, { waitUntil: 'networkidle' });
+    await page.getByText(new RegExp(`Referral code applied: ${affiliateCode}`)).waitFor({ timeout: 10000 });
+    await page.getByLabel('Company name').fill(`QA Referred Company ${suffix}`);
+    await page.getByLabel('Fleet size').selectOption('6-20');
+    await page.getByLabel('Active drivers').fill('7');
+    await page.getByLabel('First name').fill('Referral');
+    await page.getByLabel('Last name').fill('Owner');
+    await page.getByLabel('Email').fill(`qa.referred.${suffix}@example.test`);
+    await page.getByLabel('Phone').fill('5553334400');
+    await page.getByLabel('Password', { exact: true }).fill('StrongPass123!');
+    await page.getByLabel('Confirm password').fill('StrongPass123!');
+    await page.getByRole('button', { name: /create company workspace/i }).click();
+    await page.getByText(/workspace request has been submitted/i).waitFor({ timeout: 10000 });
+  });
+
   await runStep('Public demo tracking page', async () => {
     await page.goto(`${baseURL}/track/DEMO0001-2026-000777`, { waitUntil: 'networkidle' });
     expect(await page.getByText('35 Orlando Drive', { exact: true }).isVisible(), 'Demo delivery address not visible');
@@ -104,6 +134,13 @@ async function runStep(name, fn) {
     await page.getByLabel('Password').fill(adminPassword);
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.getByRole('button', { name: /log out/i }).waitFor({ timeout: 10000 });
+  });
+
+  await runStep('Super admin affiliate dashboard', async () => {
+    await page.getByRole('button', { name: /Affiliates/i }).click();
+    await page.locator('#viewContainer').getByRole('heading', { name: /Affiliate Program/i }).waitFor({ timeout: 10000 });
+    expect((await page.locator('body').innerText()).includes(affiliateCode), 'Affiliate code missing from super admin dashboard');
+    expect(await page.getByText(/25% recurring commission/i).first().isVisible(), 'Affiliate commission copy missing');
   });
 
   await runStep('Payment issue blocks company portal access', async () => {

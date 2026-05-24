@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Affiliate Program | Dispatcher365</title>
+  <meta name="description" content="Join the Dispatcher365 affiliate program and earn 25% recurring commission for referred companies that sign up." />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#101923" />
+  <link rel="canonical" href="https://dispatcher365.co/affiliate" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css?v=affiliate-program" />
+</head>
+<body class="marketing-body">
+  <header class="marketing-nav">
+    <a class="marketing-brand" href="/">
+      <span>D365</span>
+      <strong>Dispatcher365</strong>
+    </a>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/#pricing">Pricing</a>
+      <a href="/signup">Sign Up</a>
+      <a class="marketing-track" href="/tracking">Shipment Tracking</a>
+      <a class="marketing-login" href="/portal">Log In</a>
+    </nav>
+  </header>
+
+  <main class="signup-page affiliate-page">
+    <section class="signup-intro">
+      <p class="eyebrow">Affiliate program</p>
+      <h1>Earn 25% recurring commission by promoting Dispatcher365.</h1>
+      <p>You do not need to be a Dispatcher365 user to promote the product. Customers, drivers, dispatchers, consultants, agencies, and independent promoters can create a referral link and share it with fleets.</p>
+      <div class="signup-flow affiliate-flow">
+        <article><span>1</span><strong>Join</strong><small>Create your promoter profile.</small></article>
+        <article><span>2</span><strong>Share</strong><small>Send your referral link to companies.</small></article>
+        <article><span>3</span><strong>Earn</strong><small>Receive 25% recurring commission on referred paid accounts.</small></article>
+      </div>
+      <div class="affiliate-terms">
+        <strong>How it works</strong>
+        <p>Referral companies still go through normal company approval and payment setup. Commission is estimated from the selected plan and active driver count, then reviewed against paid subscription activity.</p>
+      </div>
+    </section>
+
+    <section class="signup-card">
+      <form id="affiliateForm" class="stack">
+        <div>
+          <p class="eyebrow">Partner signup</p>
+          <h2>Create your referral link</h2>
+        </div>
+        <div class="split">
+          <label>First name<input name="firstName" required autocomplete="given-name" /></label>
+          <label>Last name<input name="lastName" required autocomplete="family-name" /></label>
+        </div>
+        <label>Email<input name="email" type="email" required autocomplete="email" /></label>
+        <label>Phone<input name="phone" autocomplete="tel" /></label>
+        <label>Company or brand name<input name="companyName" autocomplete="organization" placeholder="Optional" /></label>
+        <label>Website or social profile<input name="promotionUrl" autocomplete="url" placeholder="Optional" /></label>
+        <div class="split">
+          <label>Promoter type<select name="promoterType">
+            <option value="independent">Independent promoter</option>
+            <option value="customer">Dispatcher365 customer</option>
+            <option value="driver">Driver or owner operator</option>
+            <option value="consultant">Consultant or agency</option>
+            <option value="employee">Dispatcher365 user</option>
+          </select></label>
+          <label>Payout email<input name="payoutEmail" type="email" placeholder="Defaults to your email" /></label>
+        </div>
+        <label>Notes<textarea name="notes" rows="4" placeholder="Tell us how you plan to promote Dispatcher365."></textarea></label>
+        <label class="hp-field">Website<input name="website" tabindex="-1" autocomplete="off" /></label>
+        <button class="btn primary" type="submit">Create Affiliate Link</button>
+        <p class="signup-message" id="affiliateMessage" role="status"></p>
+        <div class="affiliate-result" id="affiliateResult" hidden></div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="marketing-footer">
+    <strong>Dispatcher365</strong>
+    <span>&copy; <span data-current-year>2026</span> Dispatcher365. All rights reserved.</span>
+    <span>Affiliate partners earn 25% recurring commission on referred paid accounts.</span>
+  </footer>
+
+  <script>
+    document.querySelectorAll('[data-current-year]').forEach(element => {
+      element.textContent = new Date().getFullYear();
+    });
+    const form = document.getElementById('affiliateForm');
+    const message = document.getElementById('affiliateMessage');
+    const result = document.getElementById('affiliateResult');
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      message.className = 'signup-message';
+      message.textContent = 'Creating your affiliate link...';
+      result.hidden = true;
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        const res = await fetch('/api/public/affiliates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Unable to create affiliate account.');
+        const code = body.affiliate.code;
+        const link = `${window.location.origin}/signup?ref=${encodeURIComponent(code)}`;
+        message.className = 'signup-message success';
+        message.textContent = 'Affiliate account created. Your referral link is ready.';
+        result.hidden = false;
+        result.innerHTML = `<strong>Your code: ${code}</strong><label>Referral link<input readonly value="${link}" /></label><button class="btn ghost" type="button" id="copyAffiliateLink">Copy Link</button>`;
+        document.getElementById('copyAffiliateLink').onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(link);
+            message.textContent = 'Referral link copied.';
+          } catch {
+            message.textContent = link;
+          }
+        };
+        form.reset();
+      } catch (error) {
+        message.className = 'signup-message error';
+        message.textContent = error.message;
+      }
+    });
+  </script>
+</body>
+</html>

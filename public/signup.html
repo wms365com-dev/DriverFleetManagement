@@ -25,6 +25,7 @@
     </a>
     <nav>
       <a href="/">Home</a>
+      <a href="/affiliate">Affiliates</a>
       <a class="marketing-track" href="/tracking">Shipment Tracking</a>
       <a class="marketing-login" href="/portal">Log In</a>
     </nav>
@@ -65,6 +66,8 @@
           <label>Active drivers<input name="driverQuantity" type="number" min="1" max="500" value="3" /></label>
         </div>
         <p class="tiny">A valid credit card is required to start the 14-day free trial. Billing starts automatically after the trial unless cancelled.</p>
+        <input type="hidden" name="affiliateCode" id="affiliateCode" />
+        <p class="tiny affiliate-referral-note" id="affiliateReferralNote" hidden></p>
 
         <div class="soft-rule"></div>
         <div>
@@ -101,6 +104,17 @@
     const form = document.getElementById('signupForm');
     const message = document.getElementById('signupMessage');
     const params = new URLSearchParams(window.location.search);
+    const affiliateInput = document.getElementById('affiliateCode');
+    const affiliateNote = document.getElementById('affiliateReferralNote');
+    const incomingRef = params.get('ref') || params.get('affiliate') || '';
+    const storedRef = localStorage.getItem('dispatcher365AffiliateCode') || '';
+    const affiliateCode = (incomingRef || storedRef).trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    if (affiliateCode) {
+      localStorage.setItem('dispatcher365AffiliateCode', affiliateCode);
+      affiliateInput.value = affiliateCode;
+      affiliateNote.hidden = false;
+      affiliateNote.textContent = `Referral code applied: ${affiliateCode}`;
+    }
     if (params.get('payment') === 'success') {
       message.className = 'signup-message success';
       message.textContent = 'Payment setup received. Complete the company signup if you have not submitted it yet.';
@@ -121,7 +135,8 @@
             plan: data.plan,
             driverQuantity: data.driverQuantity,
             email: data.email,
-            companyName: data.companyName
+            companyName: data.companyName,
+            affiliateCode: data.affiliateCode
           })
         });
         const body = await res.json();
