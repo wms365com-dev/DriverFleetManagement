@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
             "com.symbol.datawedge.api.RESULT_ACTION",
             "com.honeywell.intent.action.BARCODE_DATA",
             "android.intent.ACTION_DECODE_DATA",
+            "com.sonim.barcode_read",
             "nlscan.action.SCANNER_RESULT",
             "com.rscja.scanner.action.scanner.RFID",
             "com.android.server.scannerservice.broadcast"
@@ -63,6 +64,12 @@ public class MainActivity extends Activity {
             "data",
             "barcode_string",
             "barcode",
+            "resultBarcode",
+            "resultBarcodeData",
+            "EXTRA_RESULTS_DATA",
+            "EXTRA_DATA_TYPE_RESULTS_DATA",
+            "BROADCAST_JSON_EXTRA",
+            "intent_extra_data_key",
             "scannerdata",
             "SCAN_BARCODE1",
             "decode_rslt",
@@ -78,6 +85,8 @@ public class MainActivity extends Activity {
     private Uri cameraPhotoUri;
     private SharedPreferences prefs;
     private BroadcastReceiver scanReceiver;
+    private final StringBuilder wedgeBuffer = new StringBuilder();
+    private long lastWedgeKeyAt = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -274,6 +283,33 @@ public class MainActivity extends Activity {
         scanInput.setSelection(scanInput.getText().length());
         InputMethodManager inputManager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (inputManager != null) inputManager.hideSoftInputFromWindow(scanInput.getWindowToken(), 0);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_UP && shouldCaptureWedgeKey(event)) {
+            long now = System.currentTimeMillis();
+            if (now - lastWedgeKeyAt > 500) wedgeBuffer.setLength(0);
+            lastWedgeKeyAt = now;
+
+            if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                if (wedgeBuffer.length() > 0) {
+                    String value = wedgeBuffer.toString();
+                    wedgeBuffer.setLength(0);
+                    handleScan(value);
+                    return true;
+                }
+            } else {
+                int unicodeChar = event.getUnicodeChar();
+                if (unicodeChar > 31) wedgeBuffer.append((char) unicodeChar);
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    private boolean shouldCaptureWedgeKey(KeyEvent event) {
+        if (urlInput != null && urlInput.hasFocus()) return false;
+        return !event.isAltPressed() && !event.isCtrlPressed() && !event.isMetaPressed();
     }
 
     private String scanValueFromIntent(Intent intent) {
