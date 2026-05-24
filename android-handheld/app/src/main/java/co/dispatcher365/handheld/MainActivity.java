@@ -16,10 +16,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.text.InputType;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
@@ -107,7 +109,17 @@ public class MainActivity extends Activity {
         urlInput.setTextColor(Color.WHITE);
         urlInput.setHintTextColor(Color.LTGRAY);
         urlInput.setHint("https://dispatcher365.co/portal");
-        urlInput.setInputType(EditorInfo.TYPE_TEXT_VARIATION_URI);
+        urlInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        urlInput.setSelectAllOnFocus(true);
+        urlInput.setImeOptions(EditorInfo.IME_ACTION_GO);
+        urlInput.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
+            if (actionId == EditorInfo.IME_ACTION_GO || enter) {
+                loadUrl(urlInput.getText().toString());
+                return true;
+            }
+            return false;
+        });
         toolbar.addView(urlInput, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout buttons = new LinearLayout(this);
@@ -123,11 +135,13 @@ public class MainActivity extends Activity {
         scanInput.setHintTextColor(Color.LTGRAY);
         scanInput.setHint("Scanner input - scan or press Enter");
         scanInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            scanInput.setShowSoftInputOnFocus(false);
+        }
         scanInput.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
             if (actionId == EditorInfo.IME_ACTION_DONE || enter) {
                 handleScan(scanInput.getText().toString());
-                scanInput.setText("");
                 return true;
             }
             return false;
@@ -184,6 +198,7 @@ public class MainActivity extends Activity {
                 urlInput.setText(url);
                 prefs.edit().putString("last_url", url).apply();
                 statusText.setText("Loaded: " + view.getTitle());
+                focusScannerInput();
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
@@ -232,6 +247,7 @@ public class MainActivity extends Activity {
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
         urlInput.setText(url);
         statusText.setText("Loading " + url);
+        focusScannerInput();
         webView.loadUrl(url);
     }
 
@@ -240,6 +256,7 @@ public class MainActivity extends Activity {
         if (value.isEmpty()) return;
         Log.i(TAG, "Scan received: " + value);
         statusText.setText("Scanned: " + value);
+        if (scanInput != null) scanInput.setText("");
         String escaped = value.replace("\\", "\\\\").replace("'", "\\'");
         String script = "(() => {"
                 + "const target=document.activeElement;"
@@ -248,6 +265,15 @@ public class MainActivity extends Activity {
                 + "return 'event';"
                 + "})()";
         webView.evaluateJavascript(script, null);
+        focusScannerInput();
+    }
+
+    private void focusScannerInput() {
+        if (scanInput == null) return;
+        scanInput.requestFocus();
+        scanInput.setSelection(scanInput.getText().length());
+        InputMethodManager inputManager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (inputManager != null) inputManager.hideSoftInputFromWindow(scanInput.getWindowToken(), 0);
     }
 
     private String scanValueFromIntent(Intent intent) {
